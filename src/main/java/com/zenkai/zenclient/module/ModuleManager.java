@@ -87,17 +87,24 @@ public final class ModuleManager {
 
         // ── Misc ────────────────────────────────────────────────────────────
         register(new AntiAFK());
-        register(new HudFps());
-        register(new HudCps());
-        register(new HudCoords());
-        register(new HudKeystrokes());
-        register(new HudCombo());
-        register(new HudArmor());
-        register(new HudClock());
-        register(new HudPotions());
+        // HUD toggle modules — enabled by default so all HUD widgets are visible
+        registerEnabled(new HudFps());
+        registerEnabled(new HudCps());
+        registerEnabled(new HudCoords());
+        registerEnabled(new HudKeystrokes());
+        registerEnabled(new HudCombo());
+        registerEnabled(new HudArmor());
+        registerEnabled(new HudClock());
+        registerEnabled(new HudPotions());
     }
 
     private void register(Module module) { modules.add(module); }
+
+    /** Registers a module and immediately enables it (calls onEnable). */
+    private void registerEnabled(Module module) {
+        modules.add(module);
+        module.setEnabled(true);
+    }
 
     public List<Module> getModules() { return modules; }
 
