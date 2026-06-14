@@ -20,25 +20,34 @@ import java.util.List;
 /**
  * Owns every {@link HudElement}, dispatches render calls, and
  * handles position persistence to disk.
+ *
+ * The 8 module-controlled elements (FPS/CPS/Coords/Keystrokes/Combo/Armor/
+ * Clock/Potions) start invisible; their corresponding Misc modules enable them.
+ * Direction and AutoScaffoldHud are always-on and start visible.
  */
 public final class HudManager {
 
     private final List<HudElement> elements = new ArrayList<>();
 
     public HudManager() {
-        register(new FpsHud());
-        register(new CpsHud());
-        register(new CoordsHud());
-        register(new KeystrokesHud());
-        register(new ComboHud());
-        register(new ArmorHud());
-        register(new DirectionHud());
-        register(new ClockHud());
-        register(new PotionHud());
-        register(new AutoScaffoldHud());
+        // Module-controlled — start hidden, Misc HUD modules will show them
+        register(new FpsHud(),        false);
+        register(new CpsHud(),        false);
+        register(new CoordsHud(),     false);
+        register(new KeystrokesHud(), false);
+        register(new ComboHud(),      false);
+        register(new ArmorHud(),      false);
+        register(new ClockHud(),      false);
+        register(new PotionHud(),     false);
+        // Always-on
+        register(new DirectionHud(),    true);
+        register(new AutoScaffoldHud(), true);
     }
 
-    private void register(HudElement e) { elements.add(e); }
+    private void register(HudElement e, boolean visible) {
+        e.setVisible(visible);
+        elements.add(e);
+    }
 
     @EventTarget
     public void onRender2D(EventRender2D event) {
