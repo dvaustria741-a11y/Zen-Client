@@ -17,14 +17,18 @@ import org.lwjgl.opengl.GL11;
 import java.awt.Color;
 
 /**
- * ESP — draws boxes around entities so you can see them through walls.
+ * ESP — draws bounding boxes around entities so they are visible through walls.
+ *
+ * Fix: EventRender3D is now actually posted by ZenClient#onRenderWorld
+ * (RenderWorldLastEvent bridge that was previously missing). GL state is
+ * fully saved/restored so other render passes are not affected.
  */
 public final class ESP extends Module {
 
-    private final ModeSetting    mode       = addSetting(new ModeSetting   ("Mode",    "Render mode",      "Box",   "Box", "Glow"));
-    private final BooleanSetting players    = addSetting(new BooleanSetting("Players", "Highlight players",         true));
-    private final BooleanSetting mobs       = addSetting(new BooleanSetting("Mobs",    "Highlight mobs",            false));
-    private final ColorSetting   colorAlly  = addSetting(new ColorSetting  ("Color",   "Box colour",      new Color(255, 0, 80, 200)));
+    private final ModeSetting    mode      = addSetting(new ModeSetting   ("Mode",    "Render mode",      "Box",   "Box", "Glow"));
+    private final BooleanSetting players   = addSetting(new BooleanSetting("Players", "Highlight players",         true));
+    private final BooleanSetting mobs      = addSetting(new BooleanSetting("Mobs",    "Highlight mobs",            false));
+    private final ColorSetting   boxColor  = addSetting(new ColorSetting  ("Color",   "Box colour",      new Color(255, 0, 80, 200)));
 
     public ESP() {
         super("ESP", "Highlights entities through walls.", Category.RENDER, Keyboard.KEY_Z);
@@ -32,64 +36,80 @@ public final class ESP extends Module {
 
     @EventTarget
     public void onRender3D(EventRender3D event) {
-        if (mc.theWorld == null) return;
+        if (mc.theWorld == null || mc.thePlayer == null) return;
 
+        // --- Save GL state ---
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GlStateManager.pushMatrix();
-        GlStateManager.disableDepth();
-        GlStateManager.disableTexture2D();
-        GlStateManager.enableBlend();
-        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+
+        // Disable depth so boxes render through terrain/blocks
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glDisable(GL11.GL_LIGHTING);
         GL11.glLineWidth(1.5f);
+        GL11.glEnable(GL11.GL_LINE_SMOOTH);
 
-        for (Entity entity : mc.theWorld.loadedEntityList) {
-            if (entity == mc.thePlayer) continue;
-            if (entity instanceof EntityPlayer  && !players.isEnabled()) continue;
-            if (!(entity instanceof EntityPlayer) && !mobs.isEnabled())  continue;
-            if (!(entity instanceof EntityLivingBase)) continue;
+        for (Object obj : mc.theWorld.loadedEntityList) {
+            if (!(obj instanceof Entity)) continue;
+            Entity entity = (Entity) obj;
+            if (entity == mc.thePlayer)                                    continue;
+            if (entity instanceof EntityPlayer  && !players.isEnabled())   continue;
+            if (!(entity instanceof EntityPlayer) && !mobs.isEnabled())    continue;
+            if (!(entity instanceof EntityLivingBase))                     continue;
+            if (((EntityLivingBase) entity).getHealth() <= 0)             continue;
 
-            drawBoundingBox(entity, colorAlly.getColor(), event.getPartialTicks());
+            drawBox(entity, boxColor.getColor(), event.getPartialTicks());
         }
 
-        GlStateManager.disableBlend();
-        GlStateManager.enableTexture2D();
-        GlStateManager.enableDepth();
+        // --- Restore GL state ---
         GlStateManager.popMatrix();
+        GL11.glPopAttrib();
     }
 
-    private void drawBoundingBox(Entity entity, Color color, float pt) {
-        double x = entity.lastTickPosX + (entity.posX - entity.lastTickPosX) * pt
-                 - mc.getRenderManager().viewerPosX;
-        double y = entity.lastTickPosY + (entity.posY - entity.lastTickPosY) * pt
-                 - mc.getRenderManager().viewerPosY;
-        double z = entity.lastTickPosZ + (entity.posZ - entity.lastTickPosZ) * pt
-                 - mc.getRenderManager().viewerPosZ;
+    private void drawBox(Entity entity, Color color, float pt) {
+        // Interpolated render position relative to the camera
+        double rx = mc.getRenderManager().viewerPosX;
+        double ry = mc.getRenderManager().viewerPosY;
+        double rz = mc.getRenderManager().viewerPosZ;
 
-        float w = entity.width  / 2F;
-        float h = entity.height;
+        double x = (entity.lastTickPosX + (entity.posX - entity.lastTickPosX) * pt) - rx;
+        double y = (entity.lastTickPosY + (entity.posY - entity.lastTickPosY) * pt) - ry;
+        double z = (entity.lastTickPosZ + (entity.posZ - entity.lastTickPosZ) * pt) - rz;
 
-        GL11.glColor4f(color.getRed()/255F, color.getGreen()/255F,
-                       color.getBlue()/255F, color.getAlpha()/255F);
+        float hw = entity.width  / 2F;   // half-width
+        float h  = entity.height;
 
-        GL11.glBegin(GL11.GL_LINE_STRIP);
+        float r = color.getRed()   / 255F;
+        float g = color.getGreen() / 255F;
+        float b = color.getBlue()  / 255F;
+        float a = color.getAlpha() / 255F;
+
+        GL11.glColor4f(r, g, b, a);
+
         // Bottom face
-        GL11.glVertex3d(x - w, y,     z - w);
-        GL11.glVertex3d(x + w, y,     z - w);
-        GL11.glVertex3d(x + w, y,     z + w);
-        GL11.glVertex3d(x - w, y,     z + w);
-        GL11.glVertex3d(x - w, y,     z - w);
-        // Top face
-        GL11.glVertex3d(x - w, y + h, z - w);
-        GL11.glVertex3d(x + w, y + h, z - w);
-        GL11.glVertex3d(x + w, y + h, z + w);
-        GL11.glVertex3d(x - w, y + h, z + w);
-        GL11.glVertex3d(x - w, y + h, z - w);
+        GL11.glBegin(GL11.GL_LINE_LOOP);
+        GL11.glVertex3d(x - hw, y,     z - hw);
+        GL11.glVertex3d(x + hw, y,     z - hw);
+        GL11.glVertex3d(x + hw, y,     z + hw);
+        GL11.glVertex3d(x - hw, y,     z + hw);
         GL11.glEnd();
 
-        // Vertical pillars
+        // Top face
+        GL11.glBegin(GL11.GL_LINE_LOOP);
+        GL11.glVertex3d(x - hw, y + h, z - hw);
+        GL11.glVertex3d(x + hw, y + h, z - hw);
+        GL11.glVertex3d(x + hw, y + h, z + hw);
+        GL11.glVertex3d(x - hw, y + h, z + hw);
+        GL11.glEnd();
+
+        // Vertical pillars connecting top and bottom
         GL11.glBegin(GL11.GL_LINES);
-        GL11.glVertex3d(x + w, y, z - w); GL11.glVertex3d(x + w, y + h, z - w);
-        GL11.glVertex3d(x + w, y, z + w); GL11.glVertex3d(x + w, y + h, z + w);
-        GL11.glVertex3d(x - w, y, z + w); GL11.glVertex3d(x - w, y + h, z + w);
+        GL11.glVertex3d(x - hw, y,     z - hw); GL11.glVertex3d(x - hw, y + h, z - hw);
+        GL11.glVertex3d(x + hw, y,     z - hw); GL11.glVertex3d(x + hw, y + h, z - hw);
+        GL11.glVertex3d(x + hw, y,     z + hw); GL11.glVertex3d(x + hw, y + h, z + hw);
+        GL11.glVertex3d(x - hw, y,     z + hw); GL11.glVertex3d(x - hw, y + h, z + hw);
         GL11.glEnd();
     }
 }
