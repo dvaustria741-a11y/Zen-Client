@@ -1,9 +1,8 @@
 package com.zenkai.zenclient.module;
 
 import com.zenkai.zenclient.module.modules.combat.ComboCounter;
-import com.zenkai.zenclient.module.modules.combat.Hitbox;
-import com.zenkai.zenclient.module.modules.combat.HitboxExpander; // Added
-import com.zenkai.zenclient.module.modules.combat.HoldAttack;     // Added
+import com.zenkai.zenclient.module.modules.combat.HitboxExpander; 
+import com.zenkai.zenclient.module.modules.combat.HoldAttack;     
 import com.zenkai.zenclient.module.modules.combat.KillAura;
 import com.zenkai.zenclient.module.modules.misc.AntiAFK;
 import com.zenkai.zenclient.module.modules.movement.Speed;
@@ -14,7 +13,6 @@ import com.zenkai.zenclient.module.modules.performance.FpsBooster;
 import com.zenkai.zenclient.module.modules.pvp.Animations;
 import com.zenkai.zenclient.module.modules.render.BetterParticles;
 import com.zenkai.zenclient.module.modules.render.ClearGlass;
-import com.zenkai.zenclient.module.modules.render.ClickGUI;         // Added
 import com.zenkai.zenclient.module.modules.render.ESP;
 import com.zenkai.zenclient.module.modules.render.FOVChanger;
 import com.zenkai.zenclient.module.modules.render.Freelook;
@@ -47,9 +45,8 @@ public final class ModuleManager {
         // ── Combat ──────────────────────────────────────────────────────────
         register(new KillAura());
         register(new ComboCounter());
-        register(new Hitbox());
-        register(new HitboxExpander()); // Registered
-        register(new HoldAttack());     // Registered
+        register(new HitboxExpander()); 
+        register(new HoldAttack());     
 
         // ── Movement ────────────────────────────────────────────────────────
         register(new Sprint());
@@ -67,7 +64,6 @@ public final class ModuleManager {
         register(new ItemPhysics());
         register(new BetterParticles());
         register(new ClearGlass());
-        register(new ClickGUI());       // Registered
 
         // ── PvP ─────────────────────────────────────────────────────────────
         register(new Animations());
@@ -89,7 +85,6 @@ public final class ModuleManager {
 
     public List<Module> getModules() { return modules; }
 
-    // Fixed: Return type changed back to List<Module>
     public List<Module> getByCategory(Category category) {
         return modules.stream()
                 .filter(m -> m.getCategory() == category)
@@ -105,7 +100,7 @@ public final class ModuleManager {
 
     public Module getByName(String name) {
         return modules.stream()
-                .filter(m -> m.getName().equalsIgnoreCase(name))
+                .filter(m -> m.getCategory().name().equalsIgnoreCase(name) || m.getName().equalsIgnoreCase(name))
                 .findFirst().orElse(null);
     }
 
