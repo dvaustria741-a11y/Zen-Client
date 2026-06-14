@@ -9,168 +9,190 @@ import com.zenkai.zenclient.setting.settings.BooleanSetting;
 import com.zenkai.zenclient.setting.settings.ModeSetting;
 import com.zenkai.zenclient.setting.settings.NumberSetting;
 import net.minecraft.client.gui.GuiScreen;
+import net.minecraft.client.gui.GuiTextField;
 import org.lwjgl.input.Mouse;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
- * ZenClient ClickGUI — Lunar-style module browser.
+ * ZenClient ClickGUI — Lunar-style module browser with search, smooth open animation.
  *
- * Layout:
- *  ┌─── title bar (30px) ──────────────────────────────────┐
- *  │ sidebar (90px) │ divider │ module list (scrollable)   │
- *  └───────────────────────────────────────────────────────┘
- *
- * Open: RIGHT SHIFT   Close: ESC or RIGHT SHIFT again
+ * Open:  RIGHT SHIFT
+ * Close: ESC or RIGHT SHIFT
  */
 public final class ClickGUI extends GuiScreen {
 
-    // ── Panel layout (GUI-scaled pixels) ──────────────────────────────────
-    private static final int PANEL_W  = 420;
-    private static final int PANEL_H  = 270;
-    private static final int SIDE_W   = 92;
-    private static final int TITLE_H  = 30;
-    private static final int MOD_H    = 38;   // module row height
+    // ── Panel layout ──────────────────────────────────────────────────────
+    private static final int PANEL_W  = 390;
+    private static final int PANEL_H  = 250;
+    private static final int SIDE_W   = 88;
+    private static final int TITLE_H  = 28;
+    private static final int SEARCH_H = 18;
+    private static final int MOD_H    = 36;
     private static final int MOD_GAP  = 2;
-    private static final int SET_H    = 22;   // setting row height
+    private static final int SET_H    = 20;
     private static final int SET_GAP  = 1;
-    private static final int SLIDER_W = 70;
+    private static final int SLIDER_W = 68;
     private static final int PAD      = 5;
 
-    // ── Colours ────────────────────────────────────────────────────────────
-    // Dark purple-black palette inspired by Lunar Client's cleanliness.
-    private static final int C_PANEL_BG    = 0xF20A0716;
-    private static final int C_TITLE_BG    = 0xFF110D20;
-    private static final int C_TITLE_BG2   = 0xFF0C091A;
-    private static final int C_SIDEBAR_BG  = 0xCC0D0A1C;
-    private static final int C_MODULE_BG   = 0xCC0E0B1C;
-    private static final int C_MODULE_HOV  = 0xCC170F28;
-    private static final int C_MODULE_ON   = 0xCC160C26;
-    private static final int C_SET_BG      = 0xCC0B0818;
-    private static final int C_SET_HOV     = 0xCC120A22;
-    private static final int C_DIVIDER     = 0xFF1C1030;
-    private static final int C_BORDER      = 0xFF241540;
-    private static final int C_TOGGLE_OFF  = 0xFF2B2040;
-    private static final int C_ACCENT      = 0xFF8B2FC9;
-    private static final int C_ACCENT_LT   = 0xFFBB66EE;
-    private static final int C_ACCENT_DK   = 0xFF5B1090;
-    private static final int C_TEXT        = 0xFFE8E8F0;
-    private static final int C_TEXT_DIM    = 0xFF8A88A0;
-    private static final int C_TEXT_HINT   = 0xFF4A4860;
-    private static final int C_TEXT_ACC    = 0xFFCC88FF;
-    private static final int C_WHITE       = 0xFFFFFFFF;
+    // ── Colours ───────────────────────────────────────────────────────────
+    private static final int C_PANEL_BG   = 0xF20A0716;
+    private static final int C_TITLE_BG   = 0xFF110D20;
+    private static final int C_TITLE_BG2  = 0xFF0C091A;
+    private static final int C_SIDEBAR_BG = 0xCC0D0A1C;
+    private static final int C_MODULE_BG  = 0xCC0E0B1C;
+    private static final int C_MODULE_HOV = 0xCC170F28;
+    private static final int C_MODULE_ON  = 0xCC160C26;
+    private static final int C_SET_BG     = 0xCC0B0818;
+    private static final int C_SET_HOV    = 0xCC120A22;
+    private static final int C_DIVIDER    = 0xFF1C1030;
+    private static final int C_BORDER     = 0xFF241540;
+    private static final int C_TOGGLE_OFF = 0xFF2B2040;
+    private static final int C_ACCENT     = 0xFF8B2FC9;
+    private static final int C_ACCENT_LT  = 0xFFBB66EE;
+    private static final int C_ACCENT_DK  = 0xFF5B1090;
+    private static final int C_TEXT       = 0xFFE8E8F0;
+    private static final int C_TEXT_DIM   = 0xFF8A88A0;
+    private static final int C_TEXT_HINT  = 0xFF4A4860;
+    private static final int C_TEXT_ACC   = 0xFFCC88FF;
+    private static final int C_WHITE      = 0xFFFFFFFF;
+    private static final int C_SEARCH_BG  = 0xFF0A081A;
 
-    // ── State ──────────────────────────────────────────────────────────────
-    private Category       selCategory   = Category.COMBAT;
-    private Module         expandedMod   = null;
-    private float          scroll        = 0f;
+    // ── State ─────────────────────────────────────────────────────────────
+    private Category      selCategory = Category.COMBAT;
+    private Module        expandedMod = null;
+    private float         scroll      = 0f;
+    private GuiTextField  searchField;
+    private NumberSetting dragSlider  = null;
+    private int           sliderTrackX;
 
-    // Slider drag
-    private NumberSetting  dragSlider    = null;
-    private int            sliderTrackX  = 0;
+    // Open animation (scale from 0.85 to 1.0 over ~180ms)
+    private final long openTime = System.currentTimeMillis();
 
-    // Panel top-left (recomputed each frame)
     private int px, py;
 
-    // ── Render ─────────────────────────────────────────────────────────────
+    // ── Init ──────────────────────────────────────────────────────────────
+
+    @Override
+    public void initGui() {
+        px = (width  - PANEL_W) / 2;
+        py = (height - PANEL_H) / 2;
+        int sfX = px + SIDE_W + 1 + PAD;
+        int sfW = PANEL_W - SIDE_W - 1 - PAD * 2;
+        searchField = new GuiTextField(0, mc.fontRendererObj,
+                sfX + 4, py + TITLE_H + 4, sfW - 8, SEARCH_H - 6);
+        searchField.setMaxStringLength(32);
+        searchField.setEnableBackgroundDrawing(false);
+        searchField.setTextColor(0xFFBBBBCC);
+    }
+
+    // ── Render ────────────────────────────────────────────────────────────
 
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         px = (width  - PANEL_W) / 2;
         py = (height - PANEL_H) / 2;
 
-        // ── Full-screen dim ────────────────────────────────────────────────
-        RenderUtil.drawRect(0, 0, width, height, 0x99000000);
+        // Open animation
+        float animT = Math.min(1f, (System.currentTimeMillis() - openTime) / 180f);
+        float scale = 0.85f + 0.15f * easeOut(animT);
+        float alpha = animT;
 
-        // ── Drop shadow ────────────────────────────────────────────────────
-        RenderUtil.drawRect(px - 4, py - 4, PANEL_W + 8, PANEL_H + 8, 0x33000000);
-        RenderUtil.drawRect(px - 2, py - 2, PANEL_W + 4, PANEL_H + 4, 0x22000000);
+        net.minecraft.client.renderer.GlStateManager.pushMatrix();
+        net.minecraft.client.renderer.GlStateManager.translate(px + PANEL_W / 2f, py + PANEL_H / 2f, 0);
+        net.minecraft.client.renderer.GlStateManager.scale(scale, scale, 1f);
+        net.minecraft.client.renderer.GlStateManager.translate(-(px + PANEL_W / 2f), -(py + PANEL_H / 2f), 0);
 
-        // ── Panel ──────────────────────────────────────────────────────────
+        // Full-screen dim (fades in with animation)
+        RenderUtil.drawRect(0, 0, width, height, alphaOf(0x99000000, alpha));
+
+        // Drop shadow
+        RenderUtil.drawRect(px - 4, py - 4, PANEL_W + 8, PANEL_H + 8, alphaOf(0x33000000, alpha));
+
+        // Panel
         RenderUtil.drawRect(px, py, PANEL_W, PANEL_H, C_PANEL_BG);
         RenderUtil.drawRoundedRectOutline(px, py, PANEL_W, PANEL_H, 5, 1f, C_BORDER);
 
-        // ── Title bar ──────────────────────────────────────────────────────
+        // Title bar
         RenderUtil.drawGradientRect(px, py, PANEL_W, TITLE_H, C_TITLE_BG, C_TITLE_BG2);
-        // Bottom accent line
         RenderUtil.drawRect(px, py + TITLE_H - 1, PANEL_W, 1, C_ACCENT_DK);
-        // Logo ◆
         RenderUtil.drawString("\u25C6", px + 10, py + (TITLE_H - 8) / 2f, C_ACCENT, true);
         RenderUtil.drawString("ZenClient", px + 22, py + (TITLE_H - 8) / 2f, C_ACCENT_LT, true);
-        // Right hint
         String hint = "v" + ZenClient.VERSION + "  \u00b7  RSHIFT";
         RenderUtil.drawString(hint,
                 px + PANEL_W - RenderUtil.stringWidth(hint) - 8,
-                py + (TITLE_H - 8) / 2f,
-                C_TEXT_HINT, false);
+                py + (TITLE_H - 8) / 2f, C_TEXT_HINT, false);
 
-        // ── Sidebar background ─────────────────────────────────────────────
+        // Sidebar
         RenderUtil.drawRect(px, py + TITLE_H, SIDE_W, PANEL_H - TITLE_H, C_SIDEBAR_BG);
-
-        // ── Sidebar divider ────────────────────────────────────────────────
         RenderUtil.drawRect(px + SIDE_W, py + TITLE_H, 1, PANEL_H - TITLE_H, C_DIVIDER);
 
-        // ── Draw sidebar ───────────────────────────────────────────────────
         renderSidebar(mouseX, mouseY);
 
-        // ── Draw modules ───────────────────────────────────────────────────
+        // Search bar area background
+        int sfX = px + SIDE_W + 1 + PAD;
+        int sfW = PANEL_W - SIDE_W - 1 - PAD * 2;
+        RenderUtil.drawRect(sfX, py + TITLE_H, sfW, SEARCH_H + 2, C_SEARCH_BG);
+        RenderUtil.drawRect(sfX, py + TITLE_H + SEARCH_H + 1, sfW, 1, C_DIVIDER);
+
+        // Search icon + field
+        RenderUtil.drawString("\u2315", sfX + 3, py + TITLE_H + 5f, C_TEXT_HINT, false);
+        if (searchField.getText().isEmpty()) {
+            RenderUtil.drawString("Search modules...",
+                    sfX + 14, py + TITLE_H + 5f, C_TEXT_HINT, false);
+        }
+        searchField.xPosition = sfX + 14;
+        searchField.yPosition = py + TITLE_H + 4;
+        searchField.width     = sfW - 18;
+        searchField.drawTextBox();
+
         renderModules(mouseX, mouseY);
+
+        net.minecraft.client.renderer.GlStateManager.popMatrix();
 
         super.drawScreen(mouseX, mouseY, partialTicks);
     }
 
-    // ── Sidebar ────────────────────────────────────────────────────────────
+    // ── Sidebar ───────────────────────────────────────────────────────────
 
     private void renderSidebar(int mouseX, int mouseY) {
-        int sx = px + 4;
-        int sy = py + TITLE_H + 10;
-        int sw = SIDE_W - 8;
-
+        int sx = px + 4, sy = py + TITLE_H + 8, sw = SIDE_W - 8;
         for (Category cat : Category.values()) {
             boolean sel = cat == selCategory;
-            boolean hov = mouseX >= sx && mouseX <= sx + sw
-                       && mouseY >= sy && mouseY <= sy + 24;
+            boolean hov = mouseX >= sx && mouseX <= sx + sw && mouseY >= sy && mouseY <= sy + 22;
 
             if (sel) {
-                // Subtle highlight background
-                RenderUtil.drawRect(sx, sy, sw, 24, 0xFF140A24);
-                // Left accent stripe
-                RenderUtil.drawRect(sx, sy + 3, 2, 18, C_ACCENT);
-                // Right fade for selected
-                RenderUtil.drawGradientRectH(sx + 2, sy, sw - 2, 24, 0x20882ACC, 0x00000000);
+                RenderUtil.drawRect(sx, sy, sw, 22, 0xFF140A24);
+                RenderUtil.drawRect(sx, sy + 2, 2, 18, C_ACCENT);
+                RenderUtil.drawGradientRectH(sx + 2, sy, sw - 2, 22, 0x20882ACC, 0x00000000);
             } else if (hov) {
-                RenderUtil.drawRect(sx, sy, sw, 24, 0xFF0F0820);
+                RenderUtil.drawRect(sx, sy, sw, 22, 0xFF0F0820);
             }
 
             int col = sel ? C_ACCENT_LT : hov ? C_TEXT : C_TEXT_DIM;
             String label = cat.getIcon() + " " + cat.getDisplayName();
-            RenderUtil.drawString(label, sx + 8, sy + 8, col, sel);
-
-            sy += 28;
+            RenderUtil.drawString(label, sx + 8, sy + 7, col, sel);
+            sy += 26;
         }
 
-        // Bottom version watermark
         String by = "by Zenkai";
         RenderUtil.drawString(by,
                 px + (SIDE_W - RenderUtil.stringWidth(by)) / 2f,
-                py + PANEL_H - 12,
-                C_TEXT_HINT, false);
+                py + PANEL_H - 10, C_TEXT_HINT, false);
     }
 
-    // ── Module list ────────────────────────────────────────────────────────
+    // ── Module list ───────────────────────────────────────────────────────
 
     private void renderModules(int mouseX, int mouseY) {
-        List<Module> modules = ZenClient.getInstance()
-                                        .getModuleManager()
-                                        .getByCategory(selCategory);
+        List<Module> modules = filteredModules();
 
         int cx = px + SIDE_W + 1 + PAD;
         int cw = PANEL_W - SIDE_W - 1 - PAD * 2;
-        int cy = py + TITLE_H + 4;
-        int ch = PANEL_H - TITLE_H - 8;
+        int cy = py + TITLE_H + SEARCH_H + 4;
+        int ch = PANEL_H - TITLE_H - SEARCH_H - 8;
 
-        // Clamp scroll
         int totalH = computeContentHeight(modules);
         if (scroll < 0) scroll = 0;
         if (scroll > Math.max(0, totalH - ch)) scroll = Math.max(0, totalH - ch);
@@ -178,13 +200,11 @@ public final class ClickGUI extends GuiScreen {
         RenderUtil.startScissor(cx, cy, cw, ch);
 
         int my = cy - (int) scroll;
-
         for (Module mod : modules) {
             if (my + MOD_H > cy && my < cy + ch) {
                 renderModuleRow(mod, cx, my, cw, mouseX, mouseY);
             }
             my += MOD_H + MOD_GAP;
-
             if (mod == expandedMod) {
                 for (Setting<?> s : mod.getSettings()) {
                     if (my + SET_H > cy && my < cy + ch) {
@@ -196,10 +216,9 @@ public final class ClickGUI extends GuiScreen {
             }
         }
 
-        // Scroll indicator (if needed)
         if (totalH > ch) {
-            float thumbH  = Math.max(20f, ch * ch / (float) totalH);
-            float thumbY  = cy + (scroll / (float)(totalH - ch)) * (ch - thumbH);
+            float thumbH = Math.max(18f, ch * ch / (float) totalH);
+            float thumbY = cy + (scroll / (float)(totalH - ch)) * (ch - thumbH);
             RenderUtil.drawRect(cx + cw - 3, cy, 2, ch, 0xFF1A1030);
             RenderUtil.drawRect(cx + cw - 3, (int) thumbY, 2, (int) thumbH, C_ACCENT_DK);
         }
@@ -207,159 +226,123 @@ public final class ClickGUI extends GuiScreen {
         RenderUtil.stopScissor();
     }
 
+    private List<Module> filteredModules() {
+        List<Module> base = ZenClient.getInstance().getModuleManager().getByCategory(selCategory);
+        String q = searchField != null ? searchField.getText().trim().toLowerCase() : "";
+        if (q.isEmpty()) return base;
+        return base.stream()
+                .filter(m -> m.getName().toLowerCase().contains(q)
+                          || m.getDescription().toLowerCase().contains(q))
+                .collect(Collectors.toList());
+    }
+
     private void renderModuleRow(Module mod, int x, int y, int w, int mx, int my) {
         boolean on  = mod.isEnabled();
         boolean exp = mod == expandedMod;
         boolean hov = mx >= x && mx <= x + w && my >= y && my <= y + MOD_H;
 
-        // Row background
         int bg = on ? (hov ? C_MODULE_HOV : C_MODULE_ON) : (hov ? C_MODULE_HOV : C_MODULE_BG);
         RenderUtil.drawRect(x, y, w, MOD_H, bg);
-
-        // Top/bottom hairlines
         RenderUtil.drawRect(x, y, w, 1, 0xFF16102A);
         RenderUtil.drawRect(x, y + MOD_H - 1, w, 1, 0xFF16102A);
 
-        // Left enabled stripe
         if (on) {
             RenderUtil.drawRect(x, y, 2, MOD_H, C_ACCENT);
             RenderUtil.drawGradientRectH(x + 2, y, 16, MOD_H, 0x30882ACC, 0x00000000);
         }
 
-        // Module name
         int nameCol = on ? C_ACCENT_LT : C_TEXT;
-        RenderUtil.drawString(mod.getName(), x + 10, y + 7, nameCol, on);
+        RenderUtil.drawString(mod.getName(), x + 10, y + 6, nameCol, on);
 
-        // Description (truncated)
         String desc = mod.getDescription();
-        int maxDescW = w - 60;
-        if (RenderUtil.stringWidth(desc) > maxDescW) {
+        int maxDescW = w - 58;
+        if (RenderUtil.stringWidth(desc) > maxDescW)
             desc = mc.fontRendererObj.trimStringToWidth(desc, maxDescW) + "..";
-        }
-        RenderUtil.drawString(desc, x + 10, y + 21, C_TEXT_HINT, false);
+        RenderUtil.drawString(desc, x + 10, y + 19, C_TEXT_HINT, false);
 
-        // ── Toggle button ──────────────────────────────────────────────────
-        drawToggle(x + w - 32, y + (MOD_H - 12) / 2, 24, 12, on);
+        drawToggle(x + w - 30, y + (MOD_H - 12) / 2, 24, 12, on);
 
-        // ── Expand chevron (if has settings) ──────────────────────────────
         if (!mod.getSettings().isEmpty()) {
             String chev = exp ? "\u25B2" : "\u25BC";
-            boolean chevHov = mx >= x + w - 52 && mx < x + w - 34 && my >= y && my <= y + MOD_H;
-            int chevCol = chevHov ? C_TEXT_DIM : C_TEXT_HINT;
-            RenderUtil.drawString(chev, x + w - 48, y + (MOD_H - 8) / 2f, chevCol, false);
+            boolean chevHov = mx >= x + w - 50 && mx < x + w - 32 && my >= y && my <= y + MOD_H;
+            RenderUtil.drawString(chev, x + w - 46, y + (MOD_H - 8) / 2f,
+                    chevHov ? C_TEXT_DIM : C_TEXT_HINT, false);
         }
     }
 
     private void renderSettingRow(Setting<?> setting, int x, int y, int w, int mx, int my) {
         boolean hov = mx >= x && mx <= x + w && my >= y && my <= y + SET_H;
-
         RenderUtil.drawRect(x, y, w, SET_H, hov ? C_SET_HOV : C_SET_BG);
-
-        // Indent line
         RenderUtil.drawRect(x, y, 1, SET_H, C_ACCENT_DK);
-
-        // Setting name
         RenderUtil.drawString(setting.getName(), x + 8, y + (SET_H - 8) / 2f, C_TEXT_DIM, false);
 
-        // ── Control ────────────────────────────────────────────────────────
         if (setting instanceof BooleanSetting) {
-            BooleanSetting bs = (BooleanSetting) setting;
-            drawToggle(x + w - 30, y + (SET_H - 12) / 2, 24, 12, bs.isEnabled());
-
+            drawToggle(x + w - 28, y + (SET_H - 12) / 2, 24, 12, ((BooleanSetting) setting).isEnabled());
         } else if (setting instanceof ModeSetting) {
-            ModeSetting ms = (ModeSetting) setting;
-            String val = "\u25C4 " + ms.getValue() + " \u25BA";
+            String val = "\u25C4 " + ((ModeSetting) setting).getValue() + " \u25BA";
             RenderUtil.drawString(val, x + w - RenderUtil.stringWidth(val) - 4,
                     y + (SET_H - 8) / 2f, C_TEXT_ACC, false);
-
         } else if (setting instanceof NumberSetting) {
             NumberSetting ns = (NumberSetting) setting;
             double pct = (ns.getValue() - ns.getMin()) / (ns.getMax() - ns.getMin());
-
-            // Value text
             String val = formatNum(ns);
             int valW = RenderUtil.stringWidth(val);
-            RenderUtil.drawString(val,
-                    x + w - SLIDER_W - valW - 10,
-                    y + (SET_H - 8) / 2f,
-                    C_TEXT_ACC, false);
-
-            // Slider track
+            RenderUtil.drawString(val, x + w - SLIDER_W - valW - 10,
+                    y + (SET_H - 8) / 2f, C_TEXT_ACC, false);
             int slX = x + w - SLIDER_W - 4;
             int slY = y + (SET_H - 4) / 2;
             RenderUtil.drawRect(slX, slY, SLIDER_W, 4, 0xFF1E1A30);
             RenderUtil.drawRect(slX, slY, (int)(SLIDER_W * pct), 4, C_ACCENT);
-            // Knob
-            RenderUtil.drawCircle(slX + (float)(SLIDER_W * pct), slY + 2f, 4.5f, C_WHITE);
-            RenderUtil.drawCircle(slX + (float)(SLIDER_W * pct), slY + 2f, 3f, C_ACCENT_LT);
+            RenderUtil.drawCircle(slX + (float)(SLIDER_W * pct), slY + 2f, 4f, C_WHITE);
+            RenderUtil.drawCircle(slX + (float)(SLIDER_W * pct), slY + 2f, 2.5f, C_ACCENT_LT);
         }
     }
 
-    // ── Toggle widget ──────────────────────────────────────────────────────
-
     private void drawToggle(int x, int y, int w, int h, boolean on) {
-        // Track
-        int track = on ? C_ACCENT : C_TOGGLE_OFF;
-        RenderUtil.drawRoundedRect(x, y, w, h, h / 2f, track);
-        // Border
+        RenderUtil.drawRoundedRect(x, y, w, h, h / 2f, on ? C_ACCENT : C_TOGGLE_OFF);
         RenderUtil.drawRoundedRectOutline(x, y, w, h, h / 2f, 0.5f, on ? C_ACCENT_LT : 0xFF3A3058);
-        // Knob — slides right when on, left when off
         float kCx = on ? x + w - h / 2f : x + h / 2f;
         RenderUtil.drawCircle(kCx, y + h / 2f, h / 2f - 1.5f, C_WHITE);
     }
 
-    // ── Mouse input ────────────────────────────────────────────────────────
+    // ── Mouse / keyboard input ────────────────────────────────────────────
 
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int button) throws IOException {
+        if (searchField != null) {
+            searchField.mouseClicked(mouseX, mouseY, button);
+        }
         px = (width  - PANEL_W) / 2;
         py = (height - PANEL_H) / 2;
 
-        // ── Sidebar ──────────────────────────────────────────────────────
-        int sx = px + 4, sy = py + TITLE_H + 10, sw = SIDE_W - 8;
+        int sx = px + 4, sy = py + TITLE_H + 8, sw = SIDE_W - 8;
         for (Category cat : Category.values()) {
-            if (mouseX >= sx && mouseX <= sx + sw && mouseY >= sy && mouseY <= sy + 24) {
-                if (selCategory != cat) {
-                    selCategory  = cat;
-                    expandedMod  = null;
-                    scroll       = 0;
-                }
+            if (mouseX >= sx && mouseX <= sx + sw && mouseY >= sy && mouseY <= sy + 22) {
+                if (selCategory != cat) { selCategory = cat; expandedMod = null; scroll = 0; }
                 return;
             }
-            sy += 28;
+            sy += 26;
         }
 
-        // ── Module list ───────────────────────────────────────────────────
-        List<Module> modules = ZenClient.getInstance()
-                                        .getModuleManager()
-                                        .getByCategory(selCategory);
-
+        List<Module> modules = filteredModules();
         int cx = px + SIDE_W + 1 + PAD;
         int cw = PANEL_W - SIDE_W - 1 - PAD * 2;
-        int cy = px + TITLE_H + 4; // intentional: will be overridden below
-        cy = py + TITLE_H + 4;
-
+        int cy = py + TITLE_H + SEARCH_H + 4;
         int my = cy - (int) scroll;
 
         for (Module mod : modules) {
             if (mouseX >= cx && mouseX <= cx + cw && mouseY >= my && mouseY <= my + MOD_H) {
-                boolean hasSettings = !mod.getSettings().isEmpty();
-
-                // Expand chevron zone
-                if (hasSettings && mouseX >= cx + cw - 52 && mouseX < cx + cw - 34) {
+                if (!mod.getSettings().isEmpty() && mouseX >= cx + cw - 50 && mouseX < cx + cw - 32) {
                     expandedMod = (expandedMod == mod) ? null : mod;
                     return;
                 }
-                // Toggle zone
                 mod.toggle();
                 return;
             }
             my += MOD_H + MOD_GAP;
-
             if (mod == expandedMod) {
                 for (Setting<?> s : mod.getSettings()) {
-                    if (mouseX >= cx + 8 && mouseX <= cx + cw - 8
-                     && mouseY >= my && mouseY <= my + SET_H) {
+                    if (mouseX >= cx + 8 && mouseX <= cx + cw - 8 && mouseY >= my && mouseY <= my + SET_H) {
                         handleSettingClick(s, mouseX, cx + 8, cw - 16, button);
                         return;
                     }
@@ -373,70 +356,74 @@ public final class ClickGUI extends GuiScreen {
     private void handleSettingClick(Setting<?> s, int mouseX, int sx, int sw, int button) {
         if (s instanceof BooleanSetting) {
             ((BooleanSetting) s).toggle();
-
         } else if (s instanceof ModeSetting) {
             ((ModeSetting) s).cycle();
-
         } else if (s instanceof NumberSetting) {
-            // Begin slider drag — record track origin
-            sliderTrackX  = sx + sw - SLIDER_W - 4;
-            dragSlider    = (NumberSetting) s;
+            sliderTrackX = sx + sw - SLIDER_W - 4;
+            dragSlider   = (NumberSetting) s;
             updateSlider(mouseX);
         }
     }
 
     @Override
     protected void mouseClickMove(int mouseX, int mouseY, int button, long timeSinceLast) {
-        if (dragSlider != null && button == 0) {
-            updateSlider(mouseX);
-        }
+        if (dragSlider != null && button == 0) updateSlider(mouseX);
     }
 
     @Override
-    protected void mouseReleased(int mouseX, int mouseY, int state) {
-        dragSlider = null;
-    }
+    protected void mouseReleased(int mouseX, int mouseY, int state) { dragSlider = null; }
 
     private void updateSlider(int mouseX) {
         if (dragSlider == null) return;
-        float t = (float)(mouseX - sliderTrackX) / SLIDER_W;
+        float t   = (float)(mouseX - sliderTrackX) / SLIDER_W;
         t = Math.max(0f, Math.min(1f, t));
         double raw = dragSlider.getMin() + t * (dragSlider.getMax() - dragSlider.getMin());
-        // Snap to increment
         double inc = dragSlider.getIncrement();
-        raw = Math.round(raw / inc) * inc;
-        dragSlider.setValue(raw);
+        dragSlider.setValue(Math.round(raw / inc) * inc);
     }
 
     @Override
     public void handleMouseInput() throws IOException {
         super.handleMouseInput();
         int wheel = Mouse.getEventDWheel();
-        if (wheel != 0) {
-            scroll -= wheel / 4f;
+        if (wheel != 0) scroll -= wheel / 4f;
+    }
+
+    @Override
+    protected void keyTyped(char typedChar, int keyCode) throws IOException {
+        if (searchField != null && searchField.isFocused()) {
+            searchField.textboxKeyTyped(typedChar, keyCode);
+            expandedMod = null;
+            scroll      = 0;
+        } else {
+            super.keyTyped(typedChar, keyCode);
         }
     }
 
-    // ── Helpers ────────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────
 
-    /** Total pixel height of the module list for the current category. */
     private int computeContentHeight(List<Module> modules) {
         int h = 0;
         for (Module m : modules) {
             h += MOD_H + MOD_GAP;
-            if (m == expandedMod) {
-                h += m.getSettings().size() * (SET_H + SET_GAP) + 3;
-            }
+            if (m == expandedMod) h += m.getSettings().size() * (SET_H + SET_GAP) + 3;
         }
         return h;
     }
 
     private static String formatNum(NumberSetting ns) {
         double inc = ns.getIncrement();
-        if (inc == (int) inc && inc >= 1.0) {
-            return String.valueOf(ns.getInt());
-        }
-        return String.format("%.2f", ns.getValue());
+        return (inc == (int) inc && inc >= 1.0) ? String.valueOf(ns.getInt())
+                                                 : String.format("%.2f", ns.getValue());
+    }
+
+    private static float easeOut(float t) {
+        float inv = 1f - t; return 1f - inv * inv * inv;
+    }
+
+    private static int alphaOf(int color, float alpha) {
+        int a = (int)(((color >> 24) & 0xFF) * alpha);
+        return (color & 0x00FFFFFF) | (a << 24);
     }
 
     @Override public boolean doesGuiPauseGame() { return false; }
