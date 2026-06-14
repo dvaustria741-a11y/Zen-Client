@@ -3,8 +3,11 @@ package com.zenkai.zenclient;
 import com.zenkai.zenclient.event.EventBus;
 import com.zenkai.zenclient.event.EventTarget;
 import com.zenkai.zenclient.event.events.EventKey;
+import com.zenkai.zenclient.event.events.EventMouse;
 import com.zenkai.zenclient.event.events.EventRender2D;
 import com.zenkai.zenclient.event.events.EventUpdate;
+import com.zenkai.zenclient.hud.GuiHudEditor;
+import com.zenkai.zenclient.hud.HudManager;
 import com.zenkai.zenclient.module.Module;
 import com.zenkai.zenclient.module.ModuleManager;
 import com.zenkai.zenclient.util.ChatUtil;
@@ -18,15 +21,21 @@ import net.minecraftforge.fml.common.event.FMLPostInitializationEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.InputEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
+import org.lwjgl.input.Keyboard;
+import org.lwjgl.input.Mouse;
 
 import java.awt.Color;
+import java.io.File;
 import java.util.List;
 
 /**
  * ZenClient — Forge 1.8.9 utility client.
  *
  * Entry point for the FML mod lifecycle.
- * All subsystems are owned by this singleton.
+ * All subsystems (EventBus, ModuleManager, HudManager) are owned here.
+ *
+ * Key bindings:
+ *   HOME — open the HUD drag-editor ({@link GuiHudEditor})
  */
 @Mod(
     modid   = ZenClient.MOD_ID,
@@ -35,33 +44,26 @@ import java.util.List;
 )
 public final class ZenClient {
 
-    // -----------------------------------------------------------------------
-    // Constants
-    // -----------------------------------------------------------------------
+    // ── Constants ─────────────────────────────────────────────────────────────
 
     public static final String MOD_ID   = "zenclient";
     public static final String MOD_NAME = "ZenClient";
     public static final String VERSION  = "1.0.0";
 
-    // -----------------------------------------------------------------------
-    // Singleton
-    // -----------------------------------------------------------------------
+    // ── Singleton ─────────────────────────────────────────────────────────────
 
     @Mod.Instance(MOD_ID)
     private static ZenClient instance;
 
     public static ZenClient getInstance() { return instance; }
 
-    // -----------------------------------------------------------------------
-    // Subsystems
-    // -----------------------------------------------------------------------
+    // ── Subsystems ────────────────────────────────────────────────────────────
 
     private EventBus      eventBus;
     private ModuleManager moduleManager;
+    private HudManager    hudManager;
 
-    // -----------------------------------------------------------------------
-    // FML lifecycle
-    // -----------------------------------------------------------------------
+    // ── FML lifecycle ─────────────────────────────────────────────────────────
 
     @EventHandler
     public void onInit(FMLInitializationEvent event) {
@@ -69,8 +71,16 @@ public final class ZenClient {
 
         eventBus      = new EventBus();
         moduleManager = new ModuleManager();
+        hudManager    = new HudManager();
 
-        // Register self for Forge events (tick, key input)
+        // Subscribe subsystems that need custom-EventBus events
+        eventBus.subscribe(this);          // array-list overlay
+        eventBus.subscribe(hudManager);    // HUD element rendering
+
+        // Restore saved HUD positions from disk
+        hudManager.loadPositions(hudConfigFile());
+
+        // Register self for Forge events (tick, key/mouse input)
         MinecraftForge.EVENT_BUS.register(this);
 
         System.out.println("[ZenClient] Registered " + moduleManager.getModules().size() + " modules.");
@@ -81,11 +91,9 @@ public final class ZenClient {
         System.out.println("[ZenClient] Ready.");
     }
 
-    // -----------------------------------------------------------------------
-    // Forge event bridges → Zen EventBus
-    // -----------------------------------------------------------------------
+    // ── Forge → Zen EventBus bridges ──────────────────────────────────────────
 
-    /** Bridge: Forge client tick → EventUpdate */
+    /** Forge client tick → EventUpdate */
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
         Minecraft mc = Minecraft.getMinecraft();
@@ -93,11 +101,13 @@ public final class ZenClient {
 
         EventUpdate.Stage stage = event.phase == TickEvent.Phase.START
                 ? EventUpdate.Stage.PRE : EventUpdate.Stage.POST;
-
         eventBus.post(new EventUpdate(stage));
     }
 
-    /** Bridge: Forge render tick → EventRender2D (only on START phase) */
+    /**
+     * Forge render tick → EventRender2D.
+     * Skipped when a GUI screen is open (GuiHudEditor renders elements itself).
+     */
     @SubscribeEvent
     public void onRenderTick(TickEvent.RenderTickEvent event) {
         if (event.phase != TickEvent.Phase.START) return;
@@ -108,23 +118,36 @@ public final class ZenClient {
         eventBus.post(new EventRender2D(sr, event.renderTickTime));
     }
 
-    /** Bridge: Forge key input → EventKey + module key-bind dispatch */
+    /** Forge key input → EventKey + module keybind + HOME → HUD editor */
     @SubscribeEvent
     public void onKeyInput(InputEvent.KeyInputEvent event) {
-        int key = org.lwjgl.input.Keyboard.getEventKey();
-        if (!org.lwjgl.input.Keyboard.getEventKeyState()) return;
+        int key = Keyboard.getEventKey();
+        if (!Keyboard.getEventKeyState()) return;
+
+        // HOME key: open the drag-editor overlay
+        if (key == Keyboard.KEY_HOME) {
+            Minecraft mc = Minecraft.getMinecraft();
+            if (mc.currentScreen == null) {
+                mc.displayGuiScreen(new GuiHudEditor());
+            }
+            return;
+        }
 
         moduleManager.onKeyPress(key);
         eventBus.post(new EventKey(key));
     }
 
-    // -----------------------------------------------------------------------
-    // Built-in array-list HUD (drawn via EventRender2D in this class)
-    // -----------------------------------------------------------------------
-
-    {
-        // Self-subscribe after eventBus is created (done in onInit)
+    /** Forge mouse input → EventMouse (used by CPS tracking, future modules) */
+    @SubscribeEvent
+    public void onMouseInput(InputEvent.MouseInputEvent event) {
+        int     button  = Mouse.getEventButton();
+        boolean pressed = Mouse.getEventButtonState();
+        if (button >= 0) {
+            eventBus.post(new EventMouse(button, pressed));
+        }
     }
+
+    // ── Array-list overlay (module names, right side of screen) ──────────────
 
     @EventTarget
     public void onRender2D(EventRender2D event) {
@@ -143,10 +166,20 @@ public final class ZenClient {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Accessors
-    // -----------------------------------------------------------------------
+    // ── HUD persistence ───────────────────────────────────────────────────────
 
-    public EventBus      getEventBus()      { return eventBus; }
+    /** Called by {@link GuiHudEditor#onGuiClosed()} to persist positions. */
+    public void saveHudPositions() {
+        hudManager.savePositions(hudConfigFile());
+    }
+
+    private File hudConfigFile() {
+        return new File(Minecraft.getMinecraft().mcDataDir, "zenclient/hud.cfg");
+    }
+
+    // ── Accessors ─────────────────────────────────────────────────────────────
+
+    public EventBus      getEventBus()      { return eventBus;      }
     public ModuleManager getModuleManager() { return moduleManager; }
+    public HudManager    getHudManager()    { return hudManager;    }
 }
