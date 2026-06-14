@@ -87,7 +87,7 @@ public final class AutoScaffold extends Module {
 
         // Delay gate
         long now = System.currentTimeMillis();
-        if (now - lastPlace < (long) delay.getValue()) return;
+        if (now - lastPlace < (long)(double) delay.getValue()) return;
 
         // Check block under feet — place at feet-1 (block the player stands on)
         BlockPos feetPos  = new BlockPos(p);
