@@ -1,0 +1,15 @@
+[
+    {
+        "modid"       : "${mod_id}",
+        "name"        : "ZenClient",
+        "description" : "A Forge 1.8.9 utility client by Zenkai.",
+        "version"     : "${version}",
+        "mcversion"   : "${mcversion}",
+        "url"         : "",
+        "authorList"  : ["Zenkai"],
+        "credits"     : "",
+        "logoFile"    : "",
+        "screenshots" : [],
+        "dependencies": []
+    }
+]
