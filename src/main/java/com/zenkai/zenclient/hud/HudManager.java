@@ -3,6 +3,7 @@ package com.zenkai.zenclient.hud;
 import com.zenkai.zenclient.event.EventTarget;
 import com.zenkai.zenclient.event.events.EventRender2D;
 import com.zenkai.zenclient.hud.elements.ArmorHud;
+import com.zenkai.zenclient.hud.elements.AutoScaffoldHud;
 import com.zenkai.zenclient.hud.elements.ClockHud;
 import com.zenkai.zenclient.hud.elements.ComboHud;
 import com.zenkai.zenclient.hud.elements.CoordsHud;
@@ -34,6 +35,7 @@ public final class HudManager {
         register(new DirectionHud());
         register(new ClockHud());
         register(new PotionHud());
+        register(new AutoScaffoldHud());
     }
 
     private void register(HudElement e) { elements.add(e); }
