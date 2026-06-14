@@ -20,6 +20,7 @@ import com.zenkai.zenclient.module.modules.render.ItemPhysics;
 import com.zenkai.zenclient.module.modules.render.MotionBlur;
 import com.zenkai.zenclient.module.modules.render.Zoom;
 import com.zenkai.zenclient.module.modules.utility.AutoGG;
+import com.zenkai.zenclient.module.modules.utility.AutoSoup;
 import com.zenkai.zenclient.module.modules.utility.BetterChat;
 import com.zenkai.zenclient.module.modules.utility.NameProtect;
 
@@ -70,6 +71,7 @@ public final class ModuleManager {
 
         // ── Utility ─────────────────────────────────────────────────────────
         register(new AutoGG());
+        register(new AutoSoup());
         register(new BetterChat());
         register(new NameProtect());
 
