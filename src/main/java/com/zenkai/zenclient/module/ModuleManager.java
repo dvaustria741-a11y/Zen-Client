@@ -1,10 +1,11 @@
 package com.zenkai.zenclient.module;
 
 import com.zenkai.zenclient.module.modules.combat.ComboCounter;
-import com.zenkai.zenclient.module.modules.combat.HitboxExpander; 
-import com.zenkai.zenclient.module.modules.combat.HoldAttack;     
+import com.zenkai.zenclient.module.modules.combat.HitboxExpander;
+import com.zenkai.zenclient.module.modules.combat.HoldAttack;
 import com.zenkai.zenclient.module.modules.combat.KillAura;
 import com.zenkai.zenclient.module.modules.misc.AntiAFK;
+import com.zenkai.zenclient.module.modules.movement.AutoScaffold;
 import com.zenkai.zenclient.module.modules.movement.Speed;
 import com.zenkai.zenclient.module.modules.movement.Sprint;
 import com.zenkai.zenclient.module.modules.movement.ToggleSneak;
@@ -19,6 +20,7 @@ import com.zenkai.zenclient.module.modules.render.Freelook;
 import com.zenkai.zenclient.module.modules.render.FullBright;
 import com.zenkai.zenclient.module.modules.render.HitColor;
 import com.zenkai.zenclient.module.modules.render.ItemPhysics;
+import com.zenkai.zenclient.module.modules.render.MotionBlur;
 import com.zenkai.zenclient.module.modules.render.Zoom;
 import com.zenkai.zenclient.module.modules.utility.AutoGG;
 import com.zenkai.zenclient.module.modules.utility.AutoSoup;
@@ -30,29 +32,26 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- * Holds and manages every registered {@link Module}.
- */
+/** Holds and manages every registered {@link Module}. */
 public final class ModuleManager {
 
     private final List<Module> modules = new ArrayList<>();
 
-    public ModuleManager() {
-        registerAll();
-    }
+    public ModuleManager() { registerAll(); }
 
     private void registerAll() {
         // ── Combat ──────────────────────────────────────────────────────────
         register(new KillAura());
         register(new ComboCounter());
-        register(new HitboxExpander()); 
-        register(new HoldAttack());     
+        register(new HitboxExpander());
+        register(new HoldAttack());
 
         // ── Movement ────────────────────────────────────────────────────────
         register(new Sprint());
         register(new Speed());
         register(new ToggleSprint());
         register(new ToggleSneak());
+        register(new AutoScaffold());
 
         // ── Render ──────────────────────────────────────────────────────────
         register(new ESP());
@@ -64,6 +63,7 @@ public final class ModuleManager {
         register(new ItemPhysics());
         register(new BetterParticles());
         register(new ClearGlass());
+        register(new MotionBlur());
 
         // ── PvP ─────────────────────────────────────────────────────────────
         register(new Animations());
