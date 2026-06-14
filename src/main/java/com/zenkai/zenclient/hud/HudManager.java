@@ -49,6 +49,14 @@ public final class HudManager {
 
     public List<HudElement> getElements() { return elements; }
 
+    /** Returns the HudElement whose name matches (case-insensitive), or null. */
+    public HudElement getElement(String name) {
+        for (HudElement el : elements) {
+            if (el.getName().equalsIgnoreCase(name)) return el;
+        }
+        return null;
+    }
+
     public void savePositions(File file) {
         file.getParentFile().mkdirs();
         try (PrintWriter pw = new PrintWriter(new FileWriter(file))) {
