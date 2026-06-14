@@ -17,10 +17,13 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * ZenClient ClickGUI — Lunar-style module browser with search, smooth open animation.
+ * ZenClient ClickGUI — Lunar-style module browser.
  *
- * Open:  RIGHT SHIFT
- * Close: ESC or RIGHT SHIFT
+ * Scrollbar fix: the scrollbar column (rightmost 8px of the content pane)
+ * now intercepts mouse events before module hit-testing, so clicking or
+ * dragging the bar never accidentally toggles a module.
+ * The thumb is fully draggable: click anywhere on the track to jump, or
+ * hold and drag to scrub continuously.
  */
 public final class ClickGUI extends GuiScreen {
 
@@ -36,6 +39,8 @@ public final class ClickGUI extends GuiScreen {
     private static final int SET_GAP  = 1;
     private static final int SLIDER_W = 68;
     private static final int PAD      = 5;
+    private static final int SB_W     = 6;   // scrollbar visual width
+    private static final int SB_HIT   = 10;  // scrollbar click-zone width
 
     // ── Colours ───────────────────────────────────────────────────────────
     private static final int C_PANEL_BG   = 0xF20A0716;
@@ -68,9 +73,13 @@ public final class ClickGUI extends GuiScreen {
     private NumberSetting dragSlider  = null;
     private int           sliderTrackX;
 
-    // Open animation (scale from 0.85 to 1.0 over ~180ms)
-    private final long openTime = System.currentTimeMillis();
+    // Scrollbar drag state
+    private boolean scrollbarDragging   = false;
+    private float   sbDragStartMouseY   = 0;
+    private float   sbDragStartScroll   = 0;
+    private int     cachedContentH      = 0;  // updated each render frame
 
+    private final long openTime = System.currentTimeMillis();
     private int px, py;
 
     // ── Init ──────────────────────────────────────────────────────────────
@@ -95,7 +104,6 @@ public final class ClickGUI extends GuiScreen {
         px = (width  - PANEL_W) / 2;
         py = (height - PANEL_H) / 2;
 
-        // Open animation
         float animT = Math.min(1f, (System.currentTimeMillis() - openTime) / 180f);
         float scale = 0.85f + 0.15f * easeOut(animT);
         float alpha = animT;
@@ -105,17 +113,12 @@ public final class ClickGUI extends GuiScreen {
         net.minecraft.client.renderer.GlStateManager.scale(scale, scale, 1f);
         net.minecraft.client.renderer.GlStateManager.translate(-(px + PANEL_W / 2f), -(py + PANEL_H / 2f), 0);
 
-        // Full-screen dim (fades in with animation)
         RenderUtil.drawRect(0, 0, width, height, alphaOf(0x99000000, alpha));
-
-        // Drop shadow
         RenderUtil.drawRect(px - 4, py - 4, PANEL_W + 8, PANEL_H + 8, alphaOf(0x33000000, alpha));
 
-        // Panel
         RenderUtil.drawRect(px, py, PANEL_W, PANEL_H, C_PANEL_BG);
         RenderUtil.drawRoundedRectOutline(px, py, PANEL_W, PANEL_H, 5, 1f, C_BORDER);
 
-        // Title bar
         RenderUtil.drawGradientRect(px, py, PANEL_W, TITLE_H, C_TITLE_BG, C_TITLE_BG2);
         RenderUtil.drawRect(px, py + TITLE_H - 1, PANEL_W, 1, C_ACCENT_DK);
         RenderUtil.drawString("\u25C6", px + 10, py + (TITLE_H - 8) / 2f, C_ACCENT, true);
@@ -125,19 +128,16 @@ public final class ClickGUI extends GuiScreen {
                 px + PANEL_W - RenderUtil.stringWidth(hint) - 8,
                 py + (TITLE_H - 8) / 2f, C_TEXT_HINT, false);
 
-        // Sidebar
         RenderUtil.drawRect(px, py + TITLE_H, SIDE_W, PANEL_H - TITLE_H, C_SIDEBAR_BG);
         RenderUtil.drawRect(px + SIDE_W, py + TITLE_H, 1, PANEL_H - TITLE_H, C_DIVIDER);
 
         renderSidebar(mouseX, mouseY);
 
-        // Search bar area background
         int sfX = px + SIDE_W + 1 + PAD;
         int sfW = PANEL_W - SIDE_W - 1 - PAD * 2;
         RenderUtil.drawRect(sfX, py + TITLE_H, sfW, SEARCH_H + 2, C_SEARCH_BG);
         RenderUtil.drawRect(sfX, py + TITLE_H + SEARCH_H + 1, sfW, 1, C_DIVIDER);
 
-        // Search icon + field
         RenderUtil.drawString("\u2315", sfX + 3, py + TITLE_H + 5f, C_TEXT_HINT, false);
         if (searchField.getText().isEmpty()) {
             RenderUtil.drawString("Search modules...",
@@ -151,7 +151,6 @@ public final class ClickGUI extends GuiScreen {
         renderModules(mouseX, mouseY);
 
         net.minecraft.client.renderer.GlStateManager.popMatrix();
-
         super.drawScreen(mouseX, mouseY, partialTicks);
     }
 
@@ -172,8 +171,7 @@ public final class ClickGUI extends GuiScreen {
             }
 
             int col = sel ? C_ACCENT_LT : hov ? C_TEXT : C_TEXT_DIM;
-            String label = cat.getIcon() + " " + cat.getDisplayName();
-            RenderUtil.drawString(label, sx + 8, sy + 7, col, sel);
+            RenderUtil.drawString(cat.getIcon() + " " + cat.getDisplayName(), sx + 8, sy + 7, col, sel);
             sy += 26;
         }
 
@@ -193,9 +191,21 @@ public final class ClickGUI extends GuiScreen {
         int cy = py + TITLE_H + SEARCH_H + 4;
         int ch = PANEL_H - TITLE_H - SEARCH_H - 8;
 
-        int totalH = computeContentHeight(modules);
+        cachedContentH = computeContentHeight(modules);
+
         if (scroll < 0) scroll = 0;
-        if (scroll > Math.max(0, totalH - ch)) scroll = Math.max(0, totalH - ch);
+        float maxScroll = Math.max(0, cachedContentH - ch);
+        if (scroll > maxScroll) scroll = maxScroll;
+
+        // During scrollbar drag, update scroll from mouse position
+        if (scrollbarDragging && cachedContentH > ch) {
+            float deltaY    = mouseY - sbDragStartMouseY;
+            float trackH    = ch;
+            float thumbH    = Math.max(18f, trackH * trackH / (float) cachedContentH);
+            float scrollable = trackH - thumbH;
+            float scrollRatio = scrollable > 0 ? deltaY / scrollable : 0;
+            scroll = Math.max(0, Math.min(maxScroll, sbDragStartScroll + scrollRatio * maxScroll));
+        }
 
         RenderUtil.startScissor(cx, cy, cw, ch);
 
@@ -216,14 +226,20 @@ public final class ClickGUI extends GuiScreen {
             }
         }
 
-        if (totalH > ch) {
-            float thumbH = Math.max(18f, ch * ch / (float) totalH);
-            float thumbY = cy + (scroll / (float)(totalH - ch)) * (ch - thumbH);
-            RenderUtil.drawRect(cx + cw - 3, cy, 2, ch, 0xFF1A1030);
-            RenderUtil.drawRect(cx + cw - 3, (int) thumbY, 2, (int) thumbH, C_ACCENT_DK);
-        }
-
         RenderUtil.stopScissor();
+
+        // Draw scrollbar (only when content overflows)
+        if (cachedContentH > ch) {
+            float thumbH    = Math.max(18f, ch * ch / (float) cachedContentH);
+            float thumbY    = cy + (scroll / maxScroll) * (ch - thumbH);
+            int   trackColor = 0xFF1A1030;
+            int   thumbColor = scrollbarDragging ? C_ACCENT : C_ACCENT_DK;
+
+            // Track
+            RenderUtil.drawRect(cx + cw - SB_W - 1, cy, SB_W, ch, trackColor);
+            // Thumb
+            RenderUtil.drawRect(cx + cw - SB_W - 1, (int) thumbY, SB_W, (int) thumbH, thumbColor);
+        }
     }
 
     private List<Module> filteredModules() {
@@ -239,7 +255,8 @@ public final class ClickGUI extends GuiScreen {
     private void renderModuleRow(Module mod, int x, int y, int w, int mx, int my) {
         boolean on  = mod.isEnabled();
         boolean exp = mod == expandedMod;
-        boolean hov = mx >= x && mx <= x + w && my >= y && my <= y + MOD_H;
+        // Exclude scrollbar column from hover highlight
+        boolean hov = mx >= x && mx <= x + w - SB_HIT && my >= y && my <= y + MOD_H;
 
         int bg = on ? (hov ? C_MODULE_HOV : C_MODULE_ON) : (hov ? C_MODULE_HOV : C_MODULE_BG);
         RenderUtil.drawRect(x, y, w, MOD_H, bg);
@@ -255,41 +272,42 @@ public final class ClickGUI extends GuiScreen {
         RenderUtil.drawString(mod.getName(), x + 10, y + 6, nameCol, on);
 
         String desc = mod.getDescription();
-        int maxDescW = w - 58;
+        int maxDescW = w - SB_HIT - 58;
         if (RenderUtil.stringWidth(desc) > maxDescW)
             desc = mc.fontRendererObj.trimStringToWidth(desc, maxDescW) + "..";
         RenderUtil.drawString(desc, x + 10, y + 19, C_TEXT_HINT, false);
 
-        drawToggle(x + w - 30, y + (MOD_H - 12) / 2, 24, 12, on);
+        drawToggle(x + w - SB_HIT - 30, y + (MOD_H - 12) / 2, 24, 12, on);
 
         if (!mod.getSettings().isEmpty()) {
             String chev = exp ? "\u25B2" : "\u25BC";
-            boolean chevHov = mx >= x + w - 50 && mx < x + w - 32 && my >= y && my <= y + MOD_H;
-            RenderUtil.drawString(chev, x + w - 46, y + (MOD_H - 8) / 2f,
+            boolean chevHov = mx >= x + w - SB_HIT - 50 && mx < x + w - SB_HIT - 32
+                           && my >= y && my <= y + MOD_H;
+            RenderUtil.drawString(chev, x + w - SB_HIT - 46, y + (MOD_H - 8) / 2f,
                     chevHov ? C_TEXT_DIM : C_TEXT_HINT, false);
         }
     }
 
     private void renderSettingRow(Setting<?> setting, int x, int y, int w, int mx, int my) {
-        boolean hov = mx >= x && mx <= x + w && my >= y && my <= y + SET_H;
+        boolean hov = mx >= x && mx <= x + w - SB_HIT && my >= y && my <= y + SET_H;
         RenderUtil.drawRect(x, y, w, SET_H, hov ? C_SET_HOV : C_SET_BG);
         RenderUtil.drawRect(x, y, 1, SET_H, C_ACCENT_DK);
         RenderUtil.drawString(setting.getName(), x + 8, y + (SET_H - 8) / 2f, C_TEXT_DIM, false);
 
         if (setting instanceof BooleanSetting) {
-            drawToggle(x + w - 28, y + (SET_H - 12) / 2, 24, 12, ((BooleanSetting) setting).isEnabled());
+            drawToggle(x + w - SB_HIT - 28, y + (SET_H - 12) / 2, 24, 12, ((BooleanSetting) setting).isEnabled());
         } else if (setting instanceof ModeSetting) {
             String val = "\u25C4 " + ((ModeSetting) setting).getValue() + " \u25BA";
-            RenderUtil.drawString(val, x + w - RenderUtil.stringWidth(val) - 4,
+            RenderUtil.drawString(val, x + w - SB_HIT - RenderUtil.stringWidth(val) - 4,
                     y + (SET_H - 8) / 2f, C_TEXT_ACC, false);
         } else if (setting instanceof NumberSetting) {
             NumberSetting ns = (NumberSetting) setting;
             double pct = (ns.getValue() - ns.getMin()) / (ns.getMax() - ns.getMin());
             String val = formatNum(ns);
             int valW = RenderUtil.stringWidth(val);
-            RenderUtil.drawString(val, x + w - SLIDER_W - valW - 10,
+            RenderUtil.drawString(val, x + w - SB_HIT - SLIDER_W - valW - 10,
                     y + (SET_H - 8) / 2f, C_TEXT_ACC, false);
-            int slX = x + w - SLIDER_W - 4;
+            int slX = x + w - SB_HIT - SLIDER_W - 4;
             int slY = y + (SET_H - 4) / 2;
             RenderUtil.drawRect(slX, slY, SLIDER_W, 4, 0xFF1E1A30);
             RenderUtil.drawRect(slX, slY, (int)(SLIDER_W * pct), 4, C_ACCENT);
@@ -307,14 +325,53 @@ public final class ClickGUI extends GuiScreen {
 
     // ── Mouse / keyboard input ────────────────────────────────────────────
 
+    /**
+     * Returns true if (mouseX, mouseY) falls inside the scrollbar hit zone.
+     * The scrollbar column is the rightmost SB_HIT pixels of the content pane.
+     */
+    private boolean isInScrollbar(int mouseX, int mouseY) {
+        if (cachedContentH <= 0) return false;
+        int cx = px + SIDE_W + 1 + PAD;
+        int cw = PANEL_W - SIDE_W - 1 - PAD * 2;
+        int cy = py + TITLE_H + SEARCH_H + 4;
+        int ch = PANEL_H - TITLE_H - SEARCH_H - 8;
+        return cachedContentH > ch
+            && mouseX >= cx + cw - SB_HIT
+            && mouseX <= cx + cw
+            && mouseY >= cy
+            && mouseY <= cy + ch;
+    }
+
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int button) throws IOException {
-        if (searchField != null) {
-            searchField.mouseClicked(mouseX, mouseY, button);
-        }
+        if (button != 0) return;
+
+        // Search field
+        if (searchField != null) searchField.mouseClicked(mouseX, mouseY, button);
+
         px = (width  - PANEL_W) / 2;
         py = (height - PANEL_H) / 2;
 
+        // Scrollbar — start drag and jump thumb to click position
+        if (isInScrollbar(mouseX, mouseY)) {
+            scrollbarDragging   = true;
+            sbDragStartMouseY   = mouseY;
+            sbDragStartScroll   = scroll;
+
+            // Jump: treat click as if dragging from thumb centre
+            int cy  = py + TITLE_H + SEARCH_H + 4;
+            int ch  = PANEL_H - TITLE_H - SEARCH_H - 8;
+            float thumbH    = Math.max(18f, ch * ch / (float) cachedContentH);
+            float scrollable = ch - thumbH;
+            float maxScroll  = Math.max(0, cachedContentH - ch);
+            float clickRatio = scrollable > 0 ? (mouseY - cy - thumbH / 2f) / scrollable : 0;
+            scroll           = Math.max(0, Math.min(maxScroll, clickRatio * maxScroll));
+            sbDragStartScroll = scroll;
+            sbDragStartMouseY = mouseY;
+            return;
+        }
+
+        // Category sidebar
         int sx = px + 4, sy = py + TITLE_H + 8, sw = SIDE_W - 8;
         for (Category cat : Category.values()) {
             if (mouseX >= sx && mouseX <= sx + sw && mouseY >= sy && mouseY <= sy + 22) {
@@ -324,15 +381,20 @@ public final class ClickGUI extends GuiScreen {
             sy += 26;
         }
 
+        // Module list
         List<Module> modules = filteredModules();
         int cx = px + SIDE_W + 1 + PAD;
         int cw = PANEL_W - SIDE_W - 1 - PAD * 2;
         int cy = py + TITLE_H + SEARCH_H + 4;
+        int ch = PANEL_H - TITLE_H - SEARCH_H - 8;
         int my = cy - (int) scroll;
 
         for (Module mod : modules) {
-            if (mouseX >= cx && mouseX <= cx + cw && mouseY >= my && mouseY <= my + MOD_H) {
-                if (!mod.getSettings().isEmpty() && mouseX >= cx + cw - 50 && mouseX < cx + cw - 32) {
+            if (mouseX >= cx && mouseX <= cx + cw - SB_HIT
+                    && mouseY >= my && mouseY <= my + MOD_H) {
+                if (!mod.getSettings().isEmpty()
+                        && mouseX >= cx + cw - SB_HIT - 50
+                        && mouseX <  cx + cw - SB_HIT - 32) {
                     expandedMod = (expandedMod == mod) ? null : mod;
                     return;
                 }
@@ -342,8 +404,9 @@ public final class ClickGUI extends GuiScreen {
             my += MOD_H + MOD_GAP;
             if (mod == expandedMod) {
                 for (Setting<?> s : mod.getSettings()) {
-                    if (mouseX >= cx + 8 && mouseX <= cx + cw - 8 && mouseY >= my && mouseY <= my + SET_H) {
-                        handleSettingClick(s, mouseX, cx + 8, cw - 16, button);
+                    if (mouseX >= cx + 8 && mouseX <= cx + cw - SB_HIT - 8
+                            && mouseY >= my && mouseY <= my + SET_H) {
+                        handleSettingClick(s, mouseX, cx + 8, cw - 16 - SB_HIT, button);
                         return;
                     }
                     my += SET_H + SET_GAP;
@@ -367,16 +430,22 @@ public final class ClickGUI extends GuiScreen {
 
     @Override
     protected void mouseClickMove(int mouseX, int mouseY, int button, long timeSinceLast) {
-        if (dragSlider != null && button == 0) updateSlider(mouseX);
+        if (button != 0) return;
+        // Slider drag takes priority
+        if (dragSlider != null) { updateSlider(mouseX); return; }
+        // Scrollbar drag is handled inside renderModules() each frame via scrollbarDragging flag
     }
 
     @Override
-    protected void mouseReleased(int mouseX, int mouseY, int state) { dragSlider = null; }
+    protected void mouseReleased(int mouseX, int mouseY, int state) {
+        dragSlider        = null;
+        scrollbarDragging = false;
+    }
 
     private void updateSlider(int mouseX) {
         if (dragSlider == null) return;
-        float t   = (float)(mouseX - sliderTrackX) / SLIDER_W;
-        t = Math.max(0f, Math.min(1f, t));
+        float t = Math.max(0f, Math.min(1f,
+                (float)(mouseX - sliderTrackX) / SLIDER_W));
         double raw = dragSlider.getMin() + t * (dragSlider.getMax() - dragSlider.getMin());
         double inc = dragSlider.getIncrement();
         dragSlider.setValue(Math.round(raw / inc) * inc);
