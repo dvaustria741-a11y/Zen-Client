@@ -5,6 +5,14 @@ import com.zenkai.zenclient.module.modules.combat.HitboxExpander;
 import com.zenkai.zenclient.module.modules.combat.HoldAttack;
 import com.zenkai.zenclient.module.modules.combat.KillAura;
 import com.zenkai.zenclient.module.modules.misc.AntiAFK;
+import com.zenkai.zenclient.module.modules.misc.HudArmor;
+import com.zenkai.zenclient.module.modules.misc.HudClock;
+import com.zenkai.zenclient.module.modules.misc.HudCombo;
+import com.zenkai.zenclient.module.modules.misc.HudCoords;
+import com.zenkai.zenclient.module.modules.misc.HudCps;
+import com.zenkai.zenclient.module.modules.misc.HudFps;
+import com.zenkai.zenclient.module.modules.misc.HudKeystrokes;
+import com.zenkai.zenclient.module.modules.misc.HudPotions;
 import com.zenkai.zenclient.module.modules.movement.AutoScaffold;
 import com.zenkai.zenclient.module.modules.movement.Speed;
 import com.zenkai.zenclient.module.modules.movement.Sprint;
@@ -79,6 +87,14 @@ public final class ModuleManager {
 
         // ── Misc ────────────────────────────────────────────────────────────
         register(new AntiAFK());
+        register(new HudFps());
+        register(new HudCps());
+        register(new HudCoords());
+        register(new HudKeystrokes());
+        register(new HudCombo());
+        register(new HudArmor());
+        register(new HudClock());
+        register(new HudPotions());
     }
 
     private void register(Module module) { modules.add(module); }
