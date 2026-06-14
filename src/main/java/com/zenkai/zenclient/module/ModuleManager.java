@@ -4,8 +4,12 @@ import com.zenkai.zenclient.module.modules.combat.KillAura;
 import com.zenkai.zenclient.module.modules.misc.AntiAFK;
 import com.zenkai.zenclient.module.modules.movement.Speed;
 import com.zenkai.zenclient.module.modules.movement.Sprint;
+import com.zenkai.zenclient.module.modules.movement.ToggleSneak;
+import com.zenkai.zenclient.module.modules.movement.ToggleSprint;
 import com.zenkai.zenclient.module.modules.render.ESP;
+import com.zenkai.zenclient.module.modules.render.Freelook;
 import com.zenkai.zenclient.module.modules.render.FullBright;
+import com.zenkai.zenclient.module.modules.render.Zoom;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -36,10 +40,14 @@ public final class ModuleManager {
         // ── Movement ────────────────────────────────────────────────────────
         register(new Sprint());
         register(new Speed());
+        register(new ToggleSprint());
+        register(new ToggleSneak());
 
         // ── Render ──────────────────────────────────────────────────────────
         register(new ESP());
         register(new FullBright());
+        register(new Zoom());
+        register(new Freelook());
 
         // ── Misc ────────────────────────────────────────────────────────────
         register(new AntiAFK());
