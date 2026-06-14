@@ -1,6 +1,7 @@
 package com.zenkai.zenclient.module;
 
 import com.zenkai.zenclient.module.modules.combat.ComboCounter;
+import com.zenkai.zenclient.module.modules.combat.Hitbox;
 import com.zenkai.zenclient.module.modules.combat.KillAura;
 import com.zenkai.zenclient.module.modules.misc.AntiAFK;
 import com.zenkai.zenclient.module.modules.movement.Speed;
@@ -17,7 +18,6 @@ import com.zenkai.zenclient.module.modules.render.Freelook;
 import com.zenkai.zenclient.module.modules.render.FullBright;
 import com.zenkai.zenclient.module.modules.render.HitColor;
 import com.zenkai.zenclient.module.modules.render.ItemPhysics;
-import com.zenkai.zenclient.module.modules.render.MotionBlur;
 import com.zenkai.zenclient.module.modules.render.Zoom;
 import com.zenkai.zenclient.module.modules.utility.AutoGG;
 import com.zenkai.zenclient.module.modules.utility.AutoSoup;
@@ -31,6 +31,10 @@ import java.util.stream.Collectors;
 
 /**
  * Holds and manages every registered {@link Module}.
+ *
+ * Changes:
+ *  + Hitbox added to Combat
+ *  - MotionBlur removed (caused visual glitches, no accum buffer on most setups)
  */
 public final class ModuleManager {
 
@@ -44,6 +48,7 @@ public final class ModuleManager {
         // ── Combat ──────────────────────────────────────────────────────────
         register(new KillAura());
         register(new ComboCounter());
+        register(new Hitbox());
 
         // ── Movement ────────────────────────────────────────────────────────
         register(new Sprint());
@@ -56,7 +61,7 @@ public final class ModuleManager {
         register(new FullBright());
         register(new Zoom());
         register(new Freelook());
-        register(new MotionBlur());
+        // MotionBlur removed — GL accumulation buffer unavailable on most hardware
         register(new FOVChanger());
         register(new HitColor());
         register(new ItemPhysics());
