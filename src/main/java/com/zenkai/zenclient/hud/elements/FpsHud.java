@@ -3,18 +3,22 @@ package com.zenkai.zenclient.hud.elements;
 import com.zenkai.zenclient.gui.Theme;
 import com.zenkai.zenclient.gui.util.RenderUtil;
 import com.zenkai.zenclient.hud.HudElement;
-import net.minecraft.client.Minecraft;
 
 /**
  * HUD widget — current frames per second.
  *
- * Reads {@code Minecraft.debugFPS} (public static int, updated by the engine
- * each second) so the value matches what the F3 debug screen shows.
+ * {@code Minecraft.debugFPS} is private in the MCP mappings used for this
+ * project, so the FPS is instead tracked by counting render frames over a
+ * rolling 1-second window.
  */
 public final class FpsHud extends HudElement {
 
     private static final float PAD_X = 4f;
     private static final float PAD_Y = 3f;
+
+    private int  frameCount = 0;
+    private int  fps        = 0;
+    private long windowStart = System.currentTimeMillis();
 
     public FpsHud() {
         super("FPS", 2, 2);
@@ -22,7 +26,15 @@ public final class FpsHud extends HudElement {
 
     @Override
     public void render(float partialTicks) {
-        int    fps  = Minecraft.debugFPS;
+        frameCount++;
+
+        long now = System.currentTimeMillis();
+        if (now - windowStart >= 1000L) {
+            fps         = frameCount;
+            frameCount  = 0;
+            windowStart = now;
+        }
+
         int    color = fps >= 60 ? 0xFF55FF55      // green  — smooth
                      : fps >= 30 ? 0xFFFFFF55      // yellow — ok
                      :             0xFFFF5555;     // red    — poor
