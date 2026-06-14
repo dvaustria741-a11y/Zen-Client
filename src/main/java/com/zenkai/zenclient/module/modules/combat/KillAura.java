@@ -19,31 +19,21 @@ import org.lwjgl.input.Keyboard;
 /**
  * KillAura — automatically attacks nearby entities.
  *
- * Attack-without-looking behaviour:
- *   When BOTH {@code Rotations} AND {@code Smooth Aim} are OFF, the aura
- *   attacks the nearest valid entity regardless of where the crosshair is
- *   pointing.  {@code mc.playerController.attackEntity()} sends a
- *   C02PacketUseEntity directly — the 1.8.9 server validates distance only,
- *   not look-angle, so the hit registers correctly.
- *
- *   When {@code Rotations} is ON the player's yaw/pitch are overridden before
- *   the attack packet.  {@code Smooth Aim} is a sub-option of Rotations and
- *   has no effect while Rotations is disabled.
- *
- * Summary:
- *   Rotations OFF + Smooth Aim OFF  →  attack silently, no head-turn
- *   Rotations ON  + Smooth Aim OFF  →  instant snap-aim, then attack
- *   Rotations ON  + Smooth Aim ON   →  smooth interpolated aim, then attack
+ * Focus Target: when enabled, the first acquired target is locked until it
+ * dies or leaves range.  Only then does KillAura switch to the next nearest.
+ * This prevents the aura from "jumping" between targets when multiple enemies
+ * are in range, which can look suspicious and split your DPS.
  */
 public final class KillAura extends Module {
 
-    private final NumberSetting  range       = addSetting(new NumberSetting ("Range",       "Attack range in blocks",              3.5, 1.0, 6.0, 0.1));
-    private final NumberSetting  cps         = addSetting(new NumberSetting ("CPS",         "Clicks per second",                    12,  1,   100, 1));
-    private final ModeSetting    targetMode  = addSetting(new ModeSetting   ("Target",      "What to target",           "Players", "Players", "Mobs", "All"));
-    private final BooleanSetting rotations   = addSetting(new BooleanSetting("Rotations",   "Rotate head toward target before hit", true));
-    private final BooleanSetting smoothAim   = addSetting(new BooleanSetting("Smooth Aim",  "Smooth rotation (ignored if Rotations OFF)", false));
-    private final NumberSetting  smoothSpeed = addSetting(new NumberSetting ("Smooth Speed","Aim interpolation speed",  0.15, 0.01, 1.0, 0.01));
-    private final BooleanSetting teamCheck   = addSetting(new BooleanSetting("Team Check",  "Skip teammates (BedWars / teams)",    false));
+    private final NumberSetting  range       = addSetting(new NumberSetting ("Range",        "Attack range in blocks",                  3.5, 1.0, 6.0, 0.1));
+    private final NumberSetting  cps         = addSetting(new NumberSetting ("CPS",          "Clicks per second",                        12,  1,   100, 1));
+    private final ModeSetting    targetMode  = addSetting(new ModeSetting   ("Target",       "What to target",            "Players",   "Players", "Mobs", "All"));
+    private final BooleanSetting focusTarget = addSetting(new BooleanSetting("Focus Target", "Lock first target until dead/out of range", true));
+    private final BooleanSetting rotations   = addSetting(new BooleanSetting("Rotations",    "Rotate head toward target before hit",     true));
+    private final BooleanSetting smoothAim   = addSetting(new BooleanSetting("Smooth Aim",   "Smooth rotation (ignored if Rotations OFF)", false));
+    private final NumberSetting  smoothSpeed = addSetting(new NumberSetting ("Smooth Speed", "Aim interpolation speed",   0.15, 0.01, 1.0, 0.01));
+    private final BooleanSetting teamCheck   = addSetting(new BooleanSetting("Team Check",   "Skip teammates (BedWars / teams)",         false));
 
     private EntityLivingBase target;
     private long             lastAttack     = 0L;
@@ -58,48 +48,52 @@ public final class KillAura extends Module {
     @Override
     public void onEnable() {
         super.onEnable();
+        target         = null;
         aimInitialised = false;
     }
-
-    // ── Main tick ─────────────────────────────────────────────────────────────
 
     @EventTarget
     public void onUpdate(EventUpdate event) {
         if (!event.isPre()) return;
 
-        target = findTarget();
+        target = resolveTarget();
         if (target == null) {
             aimInitialised = false;
             return;
         }
 
-        // CPS gate
         long now   = System.currentTimeMillis();
         long delay = 1000L / (long) cps.getInt();
         if (now - lastAttack < delay) return;
         lastAttack = now;
 
-        // ── Rotation ──────────────────────────────────────────────────────────
-        // Only modify the player's look direction when Rotations is ON.
-        // With Rotations OFF the attack fires silently — cursor position is
-        // irrelevant because attackEntity() does not check look-angle server-side.
         if (rotations.isEnabled()) {
             rotateTowards(target);
         }
 
-        // ── Attack ────────────────────────────────────────────────────────────
         mc.thePlayer.swingItem();
         mc.playerController.attackEntity(mc.thePlayer, target);
 
-        // Preserve sprint so the post-hit speed penalty is avoided
         if (mc.thePlayer.isSprinting()) {
             mc.thePlayer.setSprinting(true);
         }
     }
 
-    // ── Target selection ──────────────────────────────────────────────────────
+    /**
+     * Resolves which entity to attack this tick.
+     * With Focus Target ON: keep the current locked target as long as it
+     * is still valid and in range; only pick a new one when it is not.
+     */
+    private EntityLivingBase resolveTarget() {
+        if (focusTarget.isEnabled() && target != null) {
+            if (isValidTarget(target) && mc.thePlayer.getDistanceToEntity(target) <= range.getValue()) {
+                return target;
+            }
+        }
+        return findNearest();
+    }
 
-    private EntityLivingBase findTarget() {
+    private EntityLivingBase findNearest() {
         double maxRange = range.getValue();
         return mc.theWorld.loadedEntityList.stream()
                 .filter(this::isValidTarget)
@@ -133,18 +127,15 @@ public final class KillAura extends Module {
         }
     }
 
-    // ── Team check ────────────────────────────────────────────────────────────
-
     private boolean isSameTeam(EntityPlayer other) {
         if (mc.thePlayer == null || mc.theWorld == null) return false;
 
-        Scoreboard       board     = mc.theWorld.getScoreboard();
-        ScorePlayerTeam  myTeam   = board.getPlayersTeam(mc.thePlayer.getName());
-        ScorePlayerTeam  theirTeam = board.getPlayersTeam(other.getName());
+        Scoreboard      board     = mc.theWorld.getScoreboard();
+        ScorePlayerTeam myTeam   = board.getPlayersTeam(mc.thePlayer.getName());
+        ScorePlayerTeam theirTeam = board.getPlayersTeam(other.getName());
 
         if (myTeam != null && theirTeam != null) return myTeam == theirTeam;
 
-        // Fallback: compare name-tag colour (BedWars teams)
         EnumChatFormatting myCol   = extractTeamColor(mc.thePlayer.getDisplayName());
         EnumChatFormatting theirCol = extractTeamColor(other.getDisplayName());
         return myCol != null && myCol == theirCol;
@@ -167,13 +158,6 @@ public final class KillAura extends Module {
         return null;
     }
 
-    // ── Rotation ──────────────────────────────────────────────────────────────
-
-    /**
-     * Rotates the player toward {@code entity}.
-     * Only called when {@code Rotations} is ON.
-     * {@code Smooth Aim} selects between instant snap and interpolated approach.
-     */
     private void rotateTowards(EntityLivingBase entity) {
         double dX = entity.posX - mc.thePlayer.posX;
         double dY = (entity.posY + entity.getEyeHeight())
@@ -183,14 +167,12 @@ public final class KillAura extends Module {
         float  tYaw   = (float) Math.toDegrees(Math.atan2(dZ, dX)) - 90F;
         float  tPitch = (float) -Math.toDegrees(Math.atan2(dY, dist));
 
-        // ── Instant snap (Smooth Aim OFF) ─────────────────────────────────────
         if (!smoothAim.isEnabled()) {
             mc.thePlayer.rotationYaw   = tYaw;
             mc.thePlayer.rotationPitch = tPitch;
             return;
         }
 
-        // ── Smooth interpolation (Smooth Aim ON) ──────────────────────────────
         if (!aimInitialised) {
             currentYaw     = mc.thePlayer.rotationYaw;
             currentPitch   = mc.thePlayer.rotationPitch;
@@ -212,8 +194,6 @@ public final class KillAura extends Module {
         if (d < -180f)  d += 360f;
         return d;
     }
-
-    // ── Disable ───────────────────────────────────────────────────────────────
 
     @Override
     public void onDisable() {
