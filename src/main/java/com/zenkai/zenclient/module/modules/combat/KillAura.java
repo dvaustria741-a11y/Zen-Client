@@ -171,7 +171,7 @@ public final class KillAura extends Module {
         for (int i = 0; i < formatted.length() - 1; i++) {
             if (formatted.charAt(i) == '\u00a7') {  // § character
                 char code = formatted.charAt(i + 1);
-                EnumChatFormatting fmt = EnumChatFormatting.getValueByChar(code);
+                EnumChatFormatting fmt = EnumChatFormatting.getByChar(code);
                 // Only return actual color codes, not formatting (bold/italic/reset etc.)
                 if (fmt != null && fmt.isColor()) {
                     return fmt;
