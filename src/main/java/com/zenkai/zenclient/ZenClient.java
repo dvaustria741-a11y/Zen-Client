@@ -54,9 +54,12 @@ public final class ZenClient {
     public void onInit(FMLInitializationEvent event) {
         System.out.println("[ZenClient] Initialising v" + VERSION + " ...");
 
-        eventBus      = new EventBus();
-        moduleManager = new ModuleManager();
+        eventBus   = new EventBus();
+
+        // HudManager must be created before ModuleManager so that HUD toggle
+        // modules can call getHudManager() inside their onEnable() at startup.
         hudManager    = new HudManager();
+        moduleManager = new ModuleManager();
 
         eventBus.subscribe(this);
         eventBus.subscribe(hudManager);
@@ -93,12 +96,6 @@ public final class ZenClient {
         eventBus.post(new EventRender2D(sr, event.renderTickTime));
     }
 
-    /**
-     * Forge world render → EventRender3D.
-     * This is what ESP and other 3D render modules listen to.
-     * RenderWorldLastEvent fires after terrain/entities are drawn,
-     * so depth-test overrides work correctly here.
-     */
     @SubscribeEvent
     public void onRenderWorld(RenderWorldLastEvent event) {
         Minecraft mc = Minecraft.getMinecraft();
