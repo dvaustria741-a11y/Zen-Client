@@ -34,13 +34,12 @@ public final class BetterChat extends Module {
     public void onEnable() {
         super.onEnable();
         MinecraftForge.EVENT_BUS.register(this);
-        mc.ingameGUI.getChatGUI().setChatLine(null, 0, 0, false);
     }
 
     @Override
     public void onDisable() {
         super.onDisable();
-        MinecraftForge.EVENT_BUS.unsubscribe(this);
+        MinecraftForge.EVENT_BUS.unregister(this);
     }
 
     @SubscribeEvent
