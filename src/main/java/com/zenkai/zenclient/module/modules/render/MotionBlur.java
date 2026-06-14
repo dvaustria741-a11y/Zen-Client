@@ -26,7 +26,7 @@ public final class MotionBlur extends Module {
     @EventTarget
     public void onRender2D(EventRender2D event) {
         try {
-            float s = (float) strength.getValue();
+            float s = strength.getFloat();
             GlStateManager.pushMatrix();
             GL11.glAccum(GL11.GL_MULT,   1f - s);
             GL11.glAccum(GL11.GL_ACCUM,  s);
