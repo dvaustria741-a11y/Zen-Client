@@ -40,7 +40,7 @@ public final class ComboCounter extends Module {
     public void onDisable() {
         super.onDisable();
         combo = 0;
-        MinecraftForge.EVENT_BUS.unsubscribe(this);
+        MinecraftForge.EVENT_BUS.unregister(this);
     }
 
     @SubscribeEvent
