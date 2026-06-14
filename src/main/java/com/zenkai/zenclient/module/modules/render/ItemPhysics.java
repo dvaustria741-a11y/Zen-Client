@@ -37,8 +37,8 @@ public final class ItemPhysics extends Module {
             if (!(obj instanceof EntityItem)) continue;
             EntityItem ei = (EntityItem) obj;
             // Lay the item flat by forcing its prevRotationYaw/Yaw to a spinning value
-            float spin = (ei.age + pt) * (float) spinSpeed.getValue();
-            ei.prevRotationYaw = spin - (float) spinSpeed.getValue();
+            float spin = (ei.ticksExisted + pt) * spinSpeed.getFloat();
+            ei.prevRotationYaw = spin - spinSpeed.getFloat();
             ei.rotationYaw     = spin;
         }
     }
