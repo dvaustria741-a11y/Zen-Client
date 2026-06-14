@@ -6,7 +6,6 @@ import com.zenkai.zenclient.module.Category;
 import com.zenkai.zenclient.module.Module;
 import com.zenkai.zenclient.setting.settings.BooleanSetting;
 import com.zenkai.zenclient.setting.settings.NumberSetting;
-import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.client.entity.EntityPlayerSP;
 import net.minecraft.item.ItemBlock;
@@ -17,36 +16,39 @@ import net.minecraft.util.MathHelper;
 import net.minecraft.util.Vec3;
 import org.lwjgl.input.Keyboard;
 
+import java.util.Random;
+
 /**
  * AutoScaffold — places blocks under the player's feet automatically.
  *
- * How it works:
- *  Each PRE-update tick the module checks whether the block directly below the
- *  player is solid.  If it is not (air, water, lava), it:
- *    1. Searches the hotbar (slots 0-8) for the first valid ItemBlock stack.
- *    2. Temporarily switches to that slot (restoring the original slot afterwards).
- *    3. Forces the player to sneak so the look-down pitch produces a valid
- *       block-placement ray (optional — enabled by the Sneak setting).
- *    4. Calls playerController.onPlayerRightClick to place the block on the
- *       UP face of the block one below the feet position.
+ * Placement fix:
+ *   feetPos   = BlockPos(player)          — block AT player feet (air)
+ *   placePos  = feetPos.down()            — block player stands ON (needs fill)
+ *   supportPos = placePos.down()          — block BELOW the target slot
+ *   We right-click the UP face of supportPos → block appears at placePos. ✓
  *
- * Settings:
- *  Delay     — minimum ms between placements (avoids bypasses flagging).
- *  Tower     — also place while holding Jump (build a tower upward).
- *  Sneak     — force-sneak while placing so the player doesn't walk off.
- *  Safe Only — only place when the player is actually falling (posY decreasing).
+ *   Old code used placePos as the right-click target with UP face,
+ *   which placed the block at feetPos (inside the player) — server rejected it.
+ *
+ * Anti-detection:
+ *   - Random delay jitter (±25 % of Delay setting) avoids fixed-interval flags.
+ *   - Player yaw is rotated toward the support block before the packet,
+ *     matching what a human would do when looking at their feet.
+ *   - Pitch is set to 80-90° (slightly varied) rather than exactly 90°.
  */
 public final class AutoScaffold extends Module {
 
-    private final NumberSetting  delay    = addSetting(new NumberSetting ("Delay",     "Ms between placements",       50,   0, 500, 5));
+    private final NumberSetting  delay    = addSetting(new NumberSetting ("Delay",     "Ms between placements",       80,   0, 500, 5));
     private final BooleanSetting tower    = addSetting(new BooleanSetting("Tower",     "Place while holding Jump",    false));
     private final BooleanSetting sneak    = addSetting(new BooleanSetting("Sneak",     "Force-sneak while placing",   true));
     private final BooleanSetting safeOnly = addSetting(new BooleanSetting("Safe Only", "Only place when falling",     false));
 
-    private long lastPlace      = 0L;
-    private int  savedSlot      = -1;
-    /** Last Y position — used for falling detection. */
-    private double prevY        = 0.0;
+    private final Random rng = new Random();
+
+    private long   lastPlace  = 0L;
+    private long   nextDelay  = 80L;
+    private int    savedSlot  = -1;
+    private double prevY      = 0.0;
 
     public AutoScaffold() {
         super("AutoScaffold", "Automatically places blocks under your feet.", Category.MOVEMENT, Keyboard.KEY_NONE);
@@ -57,6 +59,7 @@ public final class AutoScaffold extends Module {
         super.onEnable();
         savedSlot = -1;
         prevY     = mc.thePlayer != null ? mc.thePlayer.posY : 0.0;
+        nextDelay = baseDelay();
     }
 
     @Override
@@ -72,83 +75,76 @@ public final class AutoScaffold extends Module {
         EntityPlayerSP p = mc.thePlayer;
         if (p == null || mc.theWorld == null) return;
 
-        // Tower mode gate — skip unless jumping is held
-        boolean jumping = mc.gameSettings.keyBindJump.isKeyDown();
-        if (tower.isEnabled() && jumping) {
-            // In tower mode we want to place every tick, handled below
-        } else if (tower.isEnabled()) {
-            // Tower enabled but not jumping — act like normal scaffold
-        }
-
-        // Falling check
         boolean isFalling = p.posY < prevY && !p.onGround;
         prevY = p.posY;
         if (safeOnly.isEnabled() && !isFalling) return;
 
-        // Delay gate
         long now = System.currentTimeMillis();
-        if (now - lastPlace < (long)(double) delay.getValue()) return;
+        if (now - lastPlace < nextDelay) return;
 
-        // Check block under feet — place at feet-1 (block the player stands on)
-        BlockPos feetPos  = new BlockPos(p);
-        BlockPos placePos = feetPos.down();
+        BlockPos feetPos    = new BlockPos(p);
+        BlockPos placePos   = feetPos.down();
+        BlockPos supportPos = placePos.down();
 
-        // If there's already a solid block there, nothing to do
         net.minecraft.block.state.IBlockState state = mc.theWorld.getBlockState(placePos);
         Material mat = state.getBlock().getMaterial();
         if (mat != Material.air && mat != Material.water && mat != Material.lava) return;
 
-        // Find a usable block in the hotbar
+        net.minecraft.block.state.IBlockState supState = mc.theWorld.getBlockState(supportPos);
+        Material supMat = supState.getBlock().getMaterial();
+        if (supMat == Material.air || supMat == Material.water || supMat == Material.lava) return;
+
         int blockSlot = findBlockInHotbar();
         if (blockSlot < 0) return;
 
-        // Switch slot if needed
         int originalSlot = p.inventory.currentItem;
         if (originalSlot != blockSlot) {
             savedSlot = originalSlot;
             p.inventory.currentItem = blockSlot;
         }
 
-        // Optional sneak so player doesn't slip off the edge
         if (sneak.isEnabled()) p.setSneaking(true);
 
-        // Save & override look direction — pitch straight down for placement
         float origYaw   = p.rotationYaw;
         float origPitch = p.rotationPitch;
-        p.rotationPitch = 90f;   // look straight down
 
-        // Place on the UP face of placePos
-        ItemStack stack  = p.inventory.getStackInSlot(blockSlot);
-        Vec3 hitVec      = new Vec3(placePos.getX() + 0.5,
-                                    placePos.getY() + 1.0,
-                                    placePos.getZ() + 0.5);
-        mc.playerController.onPlayerRightClick(p, mc.theWorld, stack, placePos, EnumFacing.UP, hitVec);
+        double cx = supportPos.getX() + 0.5 - p.posX;
+        double cz = supportPos.getZ() + 0.5 - p.posZ;
+        float  targetYaw = (float) Math.toDegrees(Math.atan2(cz, cx)) - 90f;
+        float  targetPitch = 80f + rng.nextFloat() * 10f;
+
+        p.rotationYaw   = targetYaw;
+        p.rotationPitch = targetPitch;
+
+        ItemStack stack = p.inventory.getStackInSlot(blockSlot);
+        Vec3 hitVec = new Vec3(
+                placePos.getX() + 0.5,
+                placePos.getY(),
+                placePos.getZ() + 0.5);
+        mc.playerController.onPlayerRightClick(p, mc.theWorld, stack, supportPos, EnumFacing.UP, hitVec);
         p.swingItem();
 
-        // Restore look direction
         p.rotationYaw   = origYaw;
         p.rotationPitch = origPitch;
 
-        // Restore slot after placement
         restoreSlot();
         if (sneak.isEnabled()) p.setSneaking(false);
 
         lastPlace = now;
+        nextDelay = baseDelay();
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    private long baseDelay() {
+        long d = (long)(double) delay.getValue();
+        if (d <= 0) return 0;
+        long jitter = (long)(d * 0.25);
+        return d - jitter + (jitter > 0 ? (rng.nextLong() % (jitter * 2 + 1) + (jitter * 2 + 1)) % (jitter * 2 + 1) : 0);
+    }
 
-    /**
-     * Returns the hotbar slot (0-8) of the first stack that is an ItemBlock
-     * with at least 1 item, or -1 if none found.
-     * Prefers the current slot to minimise unnecessary switching.
-     */
     private int findBlockInHotbar() {
         EntityPlayerSP p = mc.thePlayer;
-        // Check current slot first (avoid unnecessary switches)
         ItemStack cur = p.inventory.getStackInSlot(p.inventory.currentItem);
         if (isUsableBlock(cur)) return p.inventory.currentItem;
-
         for (int i = 0; i < 9; i++) {
             if (isUsableBlock(p.inventory.getStackInSlot(i))) return i;
         }
@@ -166,9 +162,6 @@ public final class AutoScaffold extends Module {
         }
     }
 
-    // ── Public accessor for HUD ───────────────────────────────────────────────
-
-    /** Returns total blocks available across the hotbar, or 0 if none. */
     public int countHotbarBlocks() {
         if (mc.thePlayer == null) return 0;
         int total = 0;
