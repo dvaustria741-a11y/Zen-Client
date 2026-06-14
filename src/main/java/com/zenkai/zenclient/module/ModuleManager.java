@@ -2,6 +2,8 @@ package com.zenkai.zenclient.module;
 
 import com.zenkai.zenclient.module.modules.combat.ComboCounter;
 import com.zenkai.zenclient.module.modules.combat.Hitbox;
+import com.zenkai.zenclient.module.modules.combat.HitboxExpander; // Added
+import com.zenkai.zenclient.module.modules.combat.HoldAttack;     // Added
 import com.zenkai.zenclient.module.modules.combat.KillAura;
 import com.zenkai.zenclient.module.modules.misc.AntiAFK;
 import com.zenkai.zenclient.module.modules.movement.Speed;
@@ -12,6 +14,7 @@ import com.zenkai.zenclient.module.modules.performance.FpsBooster;
 import com.zenkai.zenclient.module.modules.pvp.Animations;
 import com.zenkai.zenclient.module.modules.render.BetterParticles;
 import com.zenkai.zenclient.module.modules.render.ClearGlass;
+import com.zenkai.zenclient.module.modules.render.ClickGUI;         // Added
 import com.zenkai.zenclient.module.modules.render.ESP;
 import com.zenkai.zenclient.module.modules.render.FOVChanger;
 import com.zenkai.zenclient.module.modules.render.Freelook;
@@ -31,10 +34,6 @@ import java.util.stream.Collectors;
 
 /**
  * Holds and manages every registered {@link Module}.
- *
- * Changes:
- *  + Hitbox added to Combat
- *  - MotionBlur removed (caused visual glitches, no accum buffer on most setups)
  */
 public final class ModuleManager {
 
@@ -49,6 +48,8 @@ public final class ModuleManager {
         register(new KillAura());
         register(new ComboCounter());
         register(new Hitbox());
+        register(new HitboxExpander()); // Registered
+        register(new HoldAttack());     // Registered
 
         // ── Movement ────────────────────────────────────────────────────────
         register(new Sprint());
@@ -61,12 +62,12 @@ public final class ModuleManager {
         register(new FullBright());
         register(new Zoom());
         register(new Freelook());
-        // MotionBlur removed — GL accumulation buffer unavailable on most hardware
         register(new FOVChanger());
         register(new HitColor());
         register(new ItemPhysics());
         register(new BetterParticles());
         register(new ClearGlass());
+        register(new ClickGUI());       // Registered
 
         // ── PvP ─────────────────────────────────────────────────────────────
         register(new Animations());
@@ -86,9 +87,9 @@ public final class ModuleManager {
 
     private void register(Module module) { modules.add(module); }
 
-    public List<Module> getModules()                          { return modules; }
+    public List<Module> getModules() { return modules; }
 
-    public List<Module> getByCategory(Category category) {
+    public List<Category> getByCategory(Category category) {
         return modules.stream()
                 .filter(m -> m.getCategory() == category)
                 .collect(Collectors.toList());
