@@ -17,7 +17,7 @@ import net.minecraft.util.MathHelper;
 import org.lwjgl.input.Keyboard;
 
 /**
- * KillAura — automatically attacks nearby entities.
+ * KillAura -- automatically attacks nearby entities.
  *
  * Settings:
  *  Range, CPS, Target mode, Rotations, Smooth Aim + Speed,
@@ -26,7 +26,7 @@ import org.lwjgl.input.Keyboard;
  * Team Check explained:
  *  BedWars servers assign players to scoreboard teams AND prefix their display
  *  names with a team color code (§c Red, §9 Blue, §a Green, §e Yellow, etc.).
- *  This module first checks the Minecraft scoreboard — the most reliable method.
+ *  This module first checks the Minecraft scoreboard -- the most reliable method.
  *  If neither player is on a scoreboard team (some servers skip this), it falls
  *  back to comparing the first color code character in each player's display name.
  *  If colors match, the player is treated as a teammate and skipped.
@@ -82,7 +82,7 @@ public final class KillAura extends Module {
         if (mc.thePlayer.isSprinting()) mc.thePlayer.setSprinting(true);
     }
 
-    // ── Target finding ────────────────────────────────────────────────────
+    // -- Target finding -------------------------------------------------------
 
     private EntityLivingBase findTarget() {
         double maxRange = range.getValue();
@@ -111,7 +111,7 @@ public final class KillAura extends Module {
             case "Mobs":
                 return !(entity instanceof EntityPlayer);
             default: {
-                // "All" — still respect team check for players
+                // "All" -- still respect team check for players
                 if (entity instanceof EntityPlayer
                         && teamCheck.isEnabled()
                         && isSameTeam((EntityPlayer) entity)) return false;
@@ -120,15 +120,15 @@ public final class KillAura extends Module {
         }
     }
 
-    // ── Team checker ─────────────────────────────────────────────────────
+    // -- Team checker ---------------------------------------------------------
 
     /**
      * Returns true if {@code other} should be considered a teammate.
      *
      * Priority:
-     *  1. Minecraft Scoreboard team — most accurate, works on any server that
+     *  1. Minecraft Scoreboard team -- most accurate, works on any server that
      *     registers teams (Hypixel BedWars, Mineplex, etc.).
-     *  2. Display-name color prefix fallback — compares the first formatting
+     *  2. Display-name color prefix fallback -- compares the first formatting
      *     code in each player's display name. Works on servers that colour
      *     names but skip the scoreboard API (some mini-game plugins do this).
      *  3. If neither method can determine a team, returns false (attack).
@@ -138,7 +138,7 @@ public final class KillAura extends Module {
 
         Scoreboard board = mc.theWorld.getScoreboard();
 
-        // ── Method 1: scoreboard team ────────────────────────────────────
+        // -- Method 1: scoreboard team ----------------------------------------
         ScorePlayerTeam myTeam    = board.getPlayersTeam(mc.thePlayer.getName());
         ScorePlayerTeam theirTeam = board.getPlayersTeam(other.getName());
 
@@ -146,7 +146,7 @@ public final class KillAura extends Module {
             return myTeam == theirTeam;
         }
 
-        // ── Method 2: display-name color prefix ──────────────────────────
+        // -- Method 2: display-name color prefix ------------------------------
         // Many BedWars servers prepend team color like "§cPlayerName".
         // We extract the first EnumChatFormatting color from each name and compare.
         EnumChatFormatting myColor    = extractTeamColor(mc.thePlayer.getDisplayName());
@@ -156,7 +156,7 @@ public final class KillAura extends Module {
             return myColor == theirColor;
         }
 
-        // Cannot determine team — default to attacking
+        // Cannot determine team -- default to attacking
         return false;
     }
 
@@ -164,24 +164,32 @@ public final class KillAura extends Module {
      * Scans the formatted display name string for the first color code that is
      * likely a team indicator (skips RESET, BOLD, ITALIC, etc.).
      *
-     * The formatted text looks like "§c§lPlayerName" — we want §c (red), not §l (bold).
+     * The formatted text looks like "§c§lPlayerName" -- we want §c (red), not §l (bold).
+     *
+     * Note: EnumChatFormatting.getByChar() does not exist in 1.8.9 MCP mappings,
+     * so we iterate over EnumChatFormatting.values() manually.
      */
     private EnumChatFormatting extractTeamColor(net.minecraft.util.IChatComponent nameComponent) {
         String formatted = nameComponent.getFormattedText();
         for (int i = 0; i < formatted.length() - 1; i++) {
-            if (formatted.charAt(i) == '\u00a7') {  // § character
+            if (formatted.charAt(i) == '\u00a7') {  // section sign §
                 char code = formatted.charAt(i + 1);
-                EnumChatFormatting fmt = EnumChatFormatting.getByChar(code);
-                // Only return actual color codes, not formatting (bold/italic/reset etc.)
-                if (fmt != null && fmt.isColor()) {
-                    return fmt;
+                // Iterate values to find matching format code character
+                for (EnumChatFormatting fmt : EnumChatFormatting.values()) {
+                    if (fmt.toString().length() == 2 && fmt.toString().charAt(1) == code) {
+                        // Only return actual color codes, not formatting (bold/italic/reset etc.)
+                        if (fmt.isColor()) {
+                            return fmt;
+                        }
+                        break;
+                    }
                 }
             }
         }
         return null;
     }
 
-    // ── Rotation ──────────────────────────────────────────────────────────
+    // -- Rotation -------------------------------------------------------------
 
     private void rotateTowards(EntityLivingBase entity) {
         double dX = entity.posX - mc.thePlayer.posX;
