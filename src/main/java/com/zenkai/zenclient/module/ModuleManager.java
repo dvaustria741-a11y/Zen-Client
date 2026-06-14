@@ -89,7 +89,8 @@ public final class ModuleManager {
 
     public List<Module> getModules() { return modules; }
 
-    public List<Category> getByCategory(Category category) {
+    // Fixed: Return type changed back to List<Module>
+    public List<Module> getByCategory(Category category) {
         return modules.stream()
                 .filter(m -> m.getCategory() == category)
                 .collect(Collectors.toList());
