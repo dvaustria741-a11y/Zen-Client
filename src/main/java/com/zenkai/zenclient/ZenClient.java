@@ -6,6 +6,7 @@ import com.zenkai.zenclient.event.events.EventKey;
 import com.zenkai.zenclient.event.events.EventMouse;
 import com.zenkai.zenclient.event.events.EventRender2D;
 import com.zenkai.zenclient.event.events.EventUpdate;
+import com.zenkai.zenclient.gui.ClickGUI;
 import com.zenkai.zenclient.hud.GuiHudEditor;
 import com.zenkai.zenclient.hud.HudManager;
 import com.zenkai.zenclient.module.Module;
@@ -123,6 +124,15 @@ public final class ZenClient {
     public void onKeyInput(InputEvent.KeyInputEvent event) {
         int key = Keyboard.getEventKey();
         if (!Keyboard.getEventKeyState()) return;
+
+        // RIGHT SHIFT — open the ClickGUI module browser
+        if (key == Keyboard.KEY_RSHIFT) {
+            Minecraft mc = Minecraft.getMinecraft();
+            if (mc.currentScreen == null) {
+                mc.displayGuiScreen(new ClickGUI());
+            }
+            return;
+        }
 
         // HOME key: open the drag-editor overlay
         if (key == Keyboard.KEY_HOME) {
