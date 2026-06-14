@@ -36,7 +36,7 @@ public final class AutoGG extends Module {
     @Override
     public void onDisable() {
         super.onDisable();
-        MinecraftForge.EVENT_BUS.unsubscribe(this);
+        MinecraftForge.EVENT_BUS.unregister(this);
     }
 
     @SubscribeEvent
