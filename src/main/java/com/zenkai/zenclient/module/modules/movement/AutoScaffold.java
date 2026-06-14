@@ -12,7 +12,6 @@ import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumFacing;
-import net.minecraft.util.MathHelper;
 import net.minecraft.util.Vec3;
 import org.lwjgl.input.Keyboard;
 
@@ -21,34 +20,33 @@ import java.util.Random;
 /**
  * AutoScaffold — places blocks under the player's feet automatically.
  *
- * Placement fix:
- *   feetPos   = BlockPos(player)          — block AT player feet (air)
- *   placePos  = feetPos.down()            — block player stands ON (needs fill)
- *   supportPos = placePos.down()          — block BELOW the target slot
- *   We right-click the UP face of supportPos → block appears at placePos. ✓
- *
- *   Old code used placePos as the right-click target with UP face,
- *   which placed the block at feetPos (inside the player) — server rejected it.
+ * Placement strategy:
+ *  1. Target = placePos = feetPos.down() (block player needs to stand on).
+ *  2. If target is already solid, nothing to do.
+ *  3. Check directly below (supportPos = placePos.down()):
+ *       solid → right-click UP face of supportPos.
+ *  4. Edge case — supportPos is also air (walking off ledge):
+ *       Check the 4 horizontal neighbors of placePos.
+ *       First solid neighbor found → right-click its facing-toward-target face.
+ *  This handles edge walking and diagonal ledges.
  *
  * Anti-detection:
- *   - Random delay jitter (±25 % of Delay setting) avoids fixed-interval flags.
- *   - Player yaw is rotated toward the support block before the packet,
- *     matching what a human would do when looking at their feet.
- *   - Pitch is set to 80-90° (slightly varied) rather than exactly 90°.
+ *  - Random ±25% delay jitter per placement.
+ *  - Yaw rotated toward support block; pitch randomized 80-90°.
  */
 public final class AutoScaffold extends Module {
 
-    private final NumberSetting  delay    = addSetting(new NumberSetting ("Delay",     "Ms between placements",       80,   0, 500, 5));
-    private final BooleanSetting tower    = addSetting(new BooleanSetting("Tower",     "Place while holding Jump",    false));
-    private final BooleanSetting sneak    = addSetting(new BooleanSetting("Sneak",     "Force-sneak while placing",   true));
-    private final BooleanSetting safeOnly = addSetting(new BooleanSetting("Safe Only", "Only place when falling",     false));
+    private final NumberSetting  delay    = addSetting(new NumberSetting ("Delay",     "Ms between placements",      80,   0, 500, 5));
+    private final BooleanSetting tower    = addSetting(new BooleanSetting("Tower",     "Place while holding Jump",   false));
+    private final BooleanSetting sneak    = addSetting(new BooleanSetting("Sneak",     "Force-sneak while placing",  true));
+    private final BooleanSetting safeOnly = addSetting(new BooleanSetting("Safe Only", "Only place when falling",    false));
 
     private final Random rng = new Random();
 
-    private long   lastPlace  = 0L;
-    private long   nextDelay  = 80L;
-    private int    savedSlot  = -1;
-    private double prevY      = 0.0;
+    private long   lastPlace = 0L;
+    private long   nextDelay = 80L;
+    private int    savedSlot = -1;
+    private double prevY     = 0.0;
 
     public AutoScaffold() {
         super("AutoScaffold", "Automatically places blocks under your feet.", Category.MOVEMENT, Keyboard.KEY_NONE);
@@ -82,17 +80,15 @@ public final class AutoScaffold extends Module {
         long now = System.currentTimeMillis();
         if (now - lastPlace < nextDelay) return;
 
-        BlockPos feetPos    = new BlockPos(p);
-        BlockPos placePos   = feetPos.down();
-        BlockPos supportPos = placePos.down();
+        BlockPos feetPos  = new BlockPos(p);
+        BlockPos placePos = feetPos.down();
 
-        net.minecraft.block.state.IBlockState state = mc.theWorld.getBlockState(placePos);
-        Material mat = state.getBlock().getMaterial();
-        if (mat != Material.air && mat != Material.water && mat != Material.lava) return;
+        // Already solid?
+        if (isSolid(placePos)) return;
 
-        net.minecraft.block.state.IBlockState supState = mc.theWorld.getBlockState(supportPos);
-        Material supMat = supState.getBlock().getMaterial();
-        if (supMat == Material.air || supMat == Material.water || supMat == Material.lava) return;
+        // Resolve a support block and the face to click
+        PlaceTarget pt = resolveSupport(placePos);
+        if (pt == null) return;
 
         int blockSlot = findBlockInHotbar();
         if (blockSlot < 0) return;
@@ -108,20 +104,18 @@ public final class AutoScaffold extends Module {
         float origYaw   = p.rotationYaw;
         float origPitch = p.rotationPitch;
 
-        double cx = supportPos.getX() + 0.5 - p.posX;
-        double cz = supportPos.getZ() + 0.5 - p.posZ;
-        float  targetYaw = (float) Math.toDegrees(Math.atan2(cz, cx)) - 90f;
-        float  targetPitch = 80f + rng.nextFloat() * 10f;
+        // Aim toward the support block
+        double cx = pt.support.getX() + 0.5 - p.posX;
+        double cz = pt.support.getZ() + 0.5 - p.posZ;
+        p.rotationYaw   = (float) Math.toDegrees(Math.atan2(cz, cx)) - 90f;
+        p.rotationPitch = 75f + rng.nextFloat() * 15f;
 
-        p.rotationYaw   = targetYaw;
-        p.rotationPitch = targetPitch;
-
-        ItemStack stack = p.inventory.getStackInSlot(blockSlot);
-        Vec3 hitVec = new Vec3(
+        ItemStack stack  = p.inventory.getStackInSlot(blockSlot);
+        Vec3      hitVec = new Vec3(
                 placePos.getX() + 0.5,
-                placePos.getY(),
+                placePos.getY() + (pt.face == EnumFacing.UP ? 0.0 : 0.5),
                 placePos.getZ() + 0.5);
-        mc.playerController.onPlayerRightClick(p, mc.theWorld, stack, supportPos, EnumFacing.UP, hitVec);
+        mc.playerController.onPlayerRightClick(p, mc.theWorld, stack, pt.support, pt.face, hitVec);
         p.swingItem();
 
         p.rotationYaw   = origYaw;
@@ -134,11 +128,54 @@ public final class AutoScaffold extends Module {
         nextDelay = baseDelay();
     }
 
+    // ── Support resolution ────────────────────────────────────────────────────
+
+    private static final EnumFacing[] HORIZONTALS = {
+        EnumFacing.NORTH, EnumFacing.SOUTH, EnumFacing.EAST, EnumFacing.WEST
+    };
+
+    /**
+     * Finds a solid block to right-click in order to place a block at placePos.
+     * Priority: block directly below > any solid horizontal neighbor.
+     */
+    private PlaceTarget resolveSupport(BlockPos placePos) {
+        // 1. Block directly below (normal scaffold)
+        BlockPos below = placePos.down();
+        if (isSolid(below)) {
+            return new PlaceTarget(below, EnumFacing.UP);
+        }
+        // 2. Horizontal neighbors (edge scaffold)
+        for (EnumFacing face : HORIZONTALS) {
+            BlockPos neighbor = placePos.offset(face);
+            if (isSolid(neighbor)) {
+                // Click the face of the neighbor that points toward placePos
+                return new PlaceTarget(neighbor, face.getOpposite());
+            }
+        }
+        return null;
+    }
+
+    private boolean isSolid(BlockPos pos) {
+        Material mat = mc.theWorld.getBlockState(pos).getBlock().getMaterial();
+        return mat != Material.air && mat != Material.water && mat != Material.lava;
+    }
+
+    private static class PlaceTarget {
+        final BlockPos   support;
+        final EnumFacing face;
+        PlaceTarget(BlockPos support, EnumFacing face) {
+            this.support = support;
+            this.face    = face;
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private long baseDelay() {
         long d = (long)(double) delay.getValue();
         if (d <= 0) return 0;
-        long jitter = (long)(d * 0.25);
-        return d - jitter + (jitter > 0 ? (rng.nextLong() % (jitter * 2 + 1) + (jitter * 2 + 1)) % (jitter * 2 + 1) : 0);
+        long jitter = Math.max(1L, d / 4);
+        return d + (long)((rng.nextDouble() * 2 - 1) * jitter);
     }
 
     private int findBlockInHotbar() {
